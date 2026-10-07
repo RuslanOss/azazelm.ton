@@ -1,7 +1,16 @@
 #!/usr/bin/env python3
 """
-Portfolio Core v2.0 — обновлённый анализатор криптопортфеля.
+Portfolio Core v2.1 — обновлённый анализатор криптопортфеля.
 Японские свечи, Supertrend, OI-метки по подтверждению с биржи.
+
+Дизайн свечей:
+- width=1.0 — свечи без зазоров, плотный ряд
+- Тело пропорционально движению цены
+- Зелёные (#00c853) / красные (#ff1744) — базовый дизайн
+- Яркие цвета (#00ff41/#ff0040) + ⚡/⚡⚡ — только при OI >5%
+- Тёмный фон (#0d1117), без сетки
+- Supertrend облако (полупрозрачная заливка с красной границей)
+- Белая пунктирная 200-SMA
 """
 
 import os
@@ -31,6 +40,12 @@ BRIGHT_BEAR = "#ff0040"
 BG_COLOR = "#0d1117"
 TEXT_COLOR = "#c9d1d9"
 GRID_COLOR = "#30363d"
+
+# ─── Параметры свечей ────────────────────────────────────────────
+
+CANDLE_WIDTH = 1.0  # без зазоров между свечами
+CANDLE_EDGE_WIDTH = 0.2  # тонкая обводка
+WICK_WIDTH = 0.5  # толщина фитиля
 
 # ─── Вспомогательные функции ─────────────────────────────────────
 
@@ -93,6 +108,7 @@ def generate_charts(btc_price: float, oi_spike: dict) -> dict:
         "oi_15min_pct": oi_spike.get("15min_pct", 0),
         "bull_color": bull_color,
         "bear_color": bear_color,
+        "candle_width": CANDLE_WIDTH,
     }
 
 
@@ -103,7 +119,7 @@ def analyze_wallet(address: str, label: str) -> dict:
 
 def main():
     print("=" * 60)
-    print("  Портфельный аналитик v2.0")
+    print("  Портфельный аналитик v2.1")
     print(f"  {datetime.now().strftime('%d.%m.%Y %H:%M')}")
     print("=" * 60)
 
@@ -131,6 +147,7 @@ def main():
 
     # Шаг 4 — Генерация графиков
     print("\n🎬 Генерация графиков...")
+    print(f"  Свечи: width={CANDLE_WIDTH} (без зазоров), пропорциональные тела")
     chart_config = generate_charts(btc_price or 0, oi_spike)
     print(f"  Цвета: {'яркие' if chart_config['use_bright_colors'] else 'базовые'}")
 
