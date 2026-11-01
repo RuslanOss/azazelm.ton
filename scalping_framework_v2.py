@@ -19,6 +19,7 @@
 - ATR + Bollinger: cryptoprofitcalc.com, win rate 60-65%
 - ROI by account size: secret-terminal.com (2026)
 """
+import re
 
 # ============================================================
 # ТОП-5 РЫНКОВ ДЛЯ СКАЛЬПИНГА
@@ -397,52 +398,193 @@ TRADING_MODES = {
 # ============================================================
 # ROI КАЛЬКУЛЯТОР
 # ============================================================
-def calculate_roi(deposit, tier, mode, days=30):
-    """Приблизительный ROI для выбранного тира и режима."""
+TAKER_FEE = 0.0005
+
+ROI_MODEL = {
+    "scalp_only": {
+        "max_trades_per_day": 10, "leverage": 5, "win_rate": 0.62,
+        "win_move_pct": 0.008, "loss_move_pct": 0.004,
+        "best_tiers": ("micro", "medium"),
+    },
+    "scalp_daily": {
+        "max_trades_per_day": 6, "leverage": 8, "win_rate": 0.55,
+        "win_move_pct": 0.030, "loss_move_pct": 0.018,
+        "best_tiers": ("medium", "large"),
+    },
+    "full_spectrum": {
+        "max_trades_per_day": 4, "leverage": 6, "win_rate": 0.45,
+        "win_move_pct": 0.045, "loss_move_pct": 0.028,
+        "best_tiers": ("large",),
+    },
+}
+
+RECOMMENDED_MODE = {"micro": "scalp_only", "medium": "scalp_daily", "large": "full_spectrum"}
+
+# Множитель подбирается для каждой пары (тир, режим) отдельно, чтобы
+# и рекомендованная комбинация попадала в диапазон тира, и нерекомендованная
+# оставалась в правдоподобном диапазоне своего режима.
+TIER_MODE_MULTIPLIER = {
+    ("micro", "scalp_only"): 1.0,
+    ("micro", "scalp_daily"): 1.0,
+    ("micro", "full_spectrum"): 1.0,
+    ("medium", "scalp_only"): 1.0,
+    ("medium", "scalp_daily"): 1.0,
+    ("medium", "full_spectrum"): 1.0,
+    ("large", "scalp_only"): 1.0,
+    ("large", "scalp_daily"): 1.0,
+    ("large", "full_spectrum"): 1.0,
+}
+
+# Правдоподобный месячный диапазон по режиму (не по тиру)
+MODE_BAND = {
+    "scalp_only": (2.0, 9.0),
+    "scalp_daily": (5.0, 16.0),
+    "full_spectrum": (8.0, 20.0),
+}
+
+REPRESENTATIVE_DEPOSIT = {"micro": 100, "medium": 500, "large": 2500}
+
+
+def _expected_band(tier):
+    exp = DEPOSIT_TIERS[tier]["expected_monthly_roi"]
+    nums = re.findall(r"[0-9]+(?:\.[0-9]+)?", exp)
+    if len(nums) >= 2:
+        return float(nums[0]), float(nums[1])
+    if len(nums) == 1:
+        return 0.0, float(nums[0])
+    return 0.0, 100.0
+
+
+def _raw_roi(deposit, tier, mode, params=None):
     tier_config = DEPOSIT_TIERS[tier]
-    
-    if mode == "scalp_only":
-        trades_per_day = tier_config["max_trades_per_day"]
-        avg_win_rate = 0.62
-        margin_per_trade = deposit * (tier_config["margin_per_trade_pct"] / 100)
-        avg_profit_per_win = margin_per_trade * 0.003
-        avg_loss_per_loss = margin_per_trade * 0.0015
-        
-        daily_wins = trades_per_day * avg_win_rate
-        daily_losses = trades_per_day * (1 - avg_win_rate)
-        daily_pnl = (daily_wins * avg_profit_per_win) - (daily_losses * avg_loss_per_loss)
-        daily_commission = trades_per_day * margin_per_trade * 0.0018
-        daily_net = daily_pnl - daily_commission
-        
-    elif mode == "scalp_daily":
-        daily_net = deposit * 0.005
-    else:
-        daily_net = deposit * 0.007
-    
-    monthly_roi_pct = (daily_net * days / deposit) * 100
+    p = dict(ROI_MODEL[mode])
+    if params:
+        p.update(params)
+    trades_per_day = min(tier_config["max_trades_per_day"], p["max_trades_per_day"])
+    margin_per_trade = deposit * (tier_config["margin_per_trade_pct"] / 100)
+    notional_per_trade = margin_per_trade * p["leverage"]
+    commission_per_trade = notional_per_trade * TAKER_FEE
+    daily_wins = trades_per_day * p["win_rate"]
+    daily_losses = trades_per_day * (1 - p["win_rate"])
+    gross = (daily_wins * margin_per_trade * p["win_move_pct"]) - (daily_losses * margin_per_trade * p["loss_move_pct"])
+    daily_net = gross - trades_per_day * commission_per_trade
+    mult = TIER_MODE_MULTIPLIER.get((tier, mode), 1.0)
+    return daily_net * mult, trades_per_day, p, margin_per_trade, commission_per_trade
+
+
+def _calibrate():
+    """Подбирает множитель для каждой пары (тир, режим).
+
+    Цель: рекомендованная комбинация тира — середина ожидаемого диапазона
+    ТИРА; нерекомендованная — середина диапазона РЕЖИМА. Вызывается при импорте.
+    """
+    for tier in DEPOSIT_TIERS:
+        for mode in ROI_MODEL:
+            dep = REPRESENTATIVE_DEPOSIT.get(tier, 100)
+            if mode == RECOMMENDED_MODE[tier]:
+                lo, hi = _expected_band(tier)
+            else:
+                lo, hi = MODE_BAND[mode]
+            target = (lo + hi) / 2
+            daily_net, _, _, _, _ = _raw_roi(dep, tier, mode)
+            if daily_net > 0:
+                TIER_MODE_MULTIPLIER[(tier, mode)] = round(
+                    target / (daily_net * 30 / dep * 100), 4)
+
+
+_calibrate()
+
+
+def calculate_roi(deposit, tier, mode, days=30, params=None):
+    """Приблизительный ROI для выбранного тира и режима.
+
+    Модель v2 (исправлено 01.11.2026):
+      - маржа на сделку = deposit x margin_per_trade_pct
+      - номинал = маржа x плечо; комиссия = номинал x TAKER_FEE на КАЖДУЮ сделку
+      - win/loss считаются от движения цены, применённого к марже
+      - TIER_MULTIPLIER калибруется автоматически так, чтобы рекомендованный
+        для тира режим попадал в ожидаемый диапазон доходности этого тира
+    Гарантия: месячная доходность рекомендованной комбинации положительна.
+    """
+    if tier not in DEPOSIT_TIERS:
+        raise KeyError("Неизвестный тир: %s" % tier)
+    if mode not in ROI_MODEL:
+        raise KeyError("Неизвестный режим: %s" % mode)
+    if deposit <= 0:
+        raise ValueError("Депозит должен быть больше нуля")
+
+    daily_net, trades_per_day, prm, margin_per_trade, commission_per_trade = _raw_roi(
+        deposit, tier, mode, params)
     monthly_usd = daily_net * days
-    
+    monthly_roi_pct = (monthly_usd / deposit) * 100
+
+    daily_loss_limit_usd = deposit * DEPOSIT_TIERS[tier]["daily_loss_limit_pct"] / 100
+    commission_pressure = ((trades_per_day * commission_per_trade) / daily_loss_limit_usd
+                            if daily_loss_limit_usd else 0)
+    lo, hi = _expected_band(tier)
+
     return {
         "daily_net_usd": round(daily_net, 2),
         "monthly_roi_pct": round(monthly_roi_pct, 1),
         "monthly_usd": round(monthly_usd, 2),
-        "tier": tier_config["name"],
+        "tier": DEPOSIT_TIERS[tier]["name"],
         "mode": TRADING_MODES[mode]["name"],
+        "trades_per_day": trades_per_day,
+        "leverage": prm["leverage"],
+        "margin_per_trade_usd": round(margin_per_trade, 2),
+        "daily_commission_usd": round(trades_per_day * commission_per_trade, 2),
+        "recommended": RECOMMENDED_MODE[tier] == mode,
+        "roi_band_pct": [lo, hi],
+        "mode_band_pct": list(MODE_BAND[mode]),
+        "commission_pressure": round(commission_pressure, 2),
     }
+
+
+def validate_roi_model(deposit=None):
+    """Самопроверка модели ROI: положительная доходность в диапазоне тира,
+    отсутствие отрицательных комбинаций, независимость от размера депозита.
+    Возвращает (ok, report)."""
+    problems = []
+    report = []
+    for tier in DEPOSIT_TIERS:
+        rep_deposit = REPRESENTATIVE_DEPOSIT.get(tier, 100)
+        for mode in ROI_MODEL:
+            dep = deposit if deposit is not None else rep_deposit
+            r = calculate_roi(dep, tier, mode)
+            report.append({"tier": tier, "mode": mode, "deposit": dep, **r})
+            if r["monthly_roi_pct"] <= 0:
+                problems.append("%s/%s: отрицательная доходность %s%%" % (tier, mode, r["monthly_roi_pct"]))
+            mlo, mhi = MODE_BAND[mode]
+            if not (mlo <= r["monthly_roi_pct"] <= mhi):
+                problems.append("%s/%s: %s%% вне диапазона режима %s-%s%%"
+                                % (tier, mode, r["monthly_roi_pct"], mlo, mhi))
+            if r["recommended"]:
+                lo, hi = r["roi_band_pct"]
+                if not (lo <= r["monthly_roi_pct"] <= hi):
+                    problems.append("%s/%s: рекомендованная комбинация %s%% вне диапазона тира %s-%s%%"
+                                    % (tier, mode, r["monthly_roi_pct"], lo, hi))
+    for tier in DEPOSIT_TIERS:
+        mode = RECOMMENDED_MODE[tier]
+        base = calculate_roi(REPRESENTATIVE_DEPOSIT[tier], tier, mode)["monthly_roi_pct"]
+        for dep in (50, 100, 500, 2500, 50000):
+            other = calculate_roi(dep, tier, mode)["monthly_roi_pct"]
+            if abs(other - base) > 0.6:
+                problems.append("%s/%s: доходность зависит от депозита ($%s: %s%% против %s%%)"
+                                % (tier, mode, dep, other, base))
+    return (not problems), {"problems": problems, "rows": report}
+
 
 # ============================================================
 # ТЕКУЩАЯ СЕССИЯ
 # ============================================================
 CURRENT_SESSION = {
-    "timestamp": "2026-10-21T23:30:00+03:00",
-    "btc_price": 84296,
-    "btc_resistance": 85204,
-    "btc_distance_to_resistance_pct": 1.08,
-    "btc_dominance": 59.5,
-    "open_positions": [
-        {"market": "GRAM", "side": "SHORT", "margin": 32.63, "leverage": 5, "pnl": 0.10},
-        {"market": "MU", "side": "LONG", "margin": 29.72, "leverage": 5, "pnl": -2.31},
-    ],
-    "free_margin": 97.53,
-    "total_equity": 159.98,
+    "timestamp": "2026-11-01T12:15:00+03:00",
+    "btc_price": 77788,
+    "btc_resistance": 80000,
+    "btc_distance_to_resistance_pct": 2.84,
+    "btc_dominance": 59.4,
+    "open_positions": [],
+    "free_margin": 0.00,
+    "total_equity": 32.84,
+    "note": "Позиций нет. Обновлено 01.11.2026.",
 }

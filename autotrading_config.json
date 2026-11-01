@@ -1,52 +1,80 @@
 {
-  "updated": "2026-10-20T16:56:00+03:00",
-  "version": 2,
+  "updated": "2026-11-01T12:15:00+03:00",
+  "version": 3,
   "account": {
-    "balance_total": 99.76,
-    "free_margin": 60.44,
-    "margin_used": 39.32
+    "balance_total": 32.84,
+    "free_margin": 0.0,
+    "margin_used": 32.84,
+    "note": "Свободная маржа 0.00 по состоянию Walt на 01.11.2026 — новые входы без пополнения невозможны."
   },
   "trading_rules": {
     "max_positions": 5,
     "max_risk_per_trade_pct": 33,
     "target_roi": "1:3",
-    "timeframes": ["15m", "1h", "4h"],
+    "timeframes": [
+      "15m",
+      "1h",
+      "4h"
+    ],
     "auto_confirm": true,
+    "min_stop_alts_pct": 3,
+    "min_stop_btc_eth_pct": 1.5,
+    "max_leverage_alts": 5,
+    "correlation_cap": 2,
+    "daily_loss_limit_usd": 15,
+    "max_stops_per_day": 3,
     "indicators": {
-      "altcoins": ["CVD", "Open Interest", "SuperTrend"],
-      "macro": ["BTC dominance", "crypto/stablecoin ratio"]
+      "altcoins": [
+        "CVD",
+        "Open Interest",
+        "SuperTrend"
+      ],
+      "macro": [
+        "BTC dominance",
+        "crypto/stablecoin ratio"
+      ]
     }
   },
-  "open_positions": [
-    {
-      "symbol": "NEAR",
-      "side": "short",
-      "leverage": 15,
-      "margin_usd": 39.32,
-      "entry_price": 4.71428,
-      "stop_loss": 4.84,
-      "take_profit": 4.00,
-      "liquidation": 4.94162,
-      "unrealized_pnl": -1.27,
-      "note": "NEAR провалил $5 при притоке $5.42M в ETF, медвежий тренд"
-    }
-  ],
+  "open_positions": [],
   "market_snapshot": {
-    "btc_price": 81444,
-    "btc_dominance_pct": 59.54,
-    "btc_dominance_change": -0.04,
-    "usdt_mcap_b": 183,
-    "usdc_mcap_b": 72.1,
-    "stablecoin_ratio": 2.54,
-    "near_price": 4.70,
-    "near_change_24h_pct": -5.02,
-    "near_change_7d_pct": -6.86
+    "btc_price": 77788,
+    "btc_change_24h_pct": 0.85,
+    "btc_change_7d_pct": -3.35,
+    "btc_dominance_pct": 59.4,
+    "btc_oi_usd": 328236155.14,
+    "btc_volume_24h_usd": 412165380.58,
+    "funding_btc_hourly_pct": 0.0096,
+    "leaders_24h": {
+      "LIT": 16.48,
+      "ZRO": 10.42,
+      "AAVE": 6.92,
+      "NEAR": 1.45
+    },
+    "leaders_7d": {
+      "HYPE": 15.41,
+      "TSLA": 7.66,
+      "ZEC": 3.42
+    },
+    "laggards_24h": {
+      "XPL": -9.23,
+      "WLD": -4.18,
+      "HYPE": -3.32
+    }
   },
   "alerts": [
     {
-      "type": "stop_warning",
-      "symbol": "NEAR",
-      "detail": "Стоп $4.84 рядом с ликвидацией $4.94162, маржа добавлена"
+      "type": "no_free_margin",
+      "detail": "Свободная маржа $0.00 — пополнение требуется для новых входов"
+    },
+    {
+      "type": "low_liquidity_move",
+      "symbol": "ZRO",
+      "detail": "+10.4% за сутки на объёме $0.33M — импульс не засчитан"
+    },
+    {
+      "type": "reversal_failed",
+      "symbol": "XPL",
+      "detail": "+4.1% днём → −9.2% на следующий день"
     }
   ]
 }
