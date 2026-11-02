@@ -240,15 +240,15 @@ from algo_config import algo_defaults, algo_drift_text, algo_status_line, ALGO_A
 SESS = {}
 
 def menu_text(uid, name, username, lang="ru"):
-    return ("<b>🧠 " + (name or "User") + "</b>\n"
-        + "Id: <code>" + str(uid) + "</code>\n"
-        + "Username: @" + (username or "user") + "\n"
-        + "Lang: " + lang + "\n"
-        + "Registered: <a href=\'https://t.me/m/ECxXXcW-YWM0\'>Check Date</a>\n\n"
-        + "<b>📚 Explanations and answers</b>\n"
-        + "Free AI → <a href=\'https://t.me/deepseek_gidbot\'>DeepSeek</a> &amp; <a href=\'https://t.me/chatgpt_gidbot\'>ChatGPT</a>\n\n"
-        + "<b>🖼 Visualize your ideas</b>\n"
-        + "Make Image → <a href=\'https://t.me/nanobanana_gidbot\'>NanoBanana</a>")
+    return ("<b>🧠 Azazel Trader</b>\n"
+        + "Пользователь: <b>" + (name or "Пользователь") + "</b>\n"
+        + "Язык: " + lang + "\n\n"
+        + "<b>Быстрый доступ</b>\n"
+        "Параметры → /params\n"
+        "Статус и подписка → /status\n"
+        "Настройка с нуля → /start\n\n"
+        + "<b>Терминал</b>\n"
+        + "Мини-приложение: рынок, отбор точек входа, стопы и разбор сделок.")
 
 
 def ask(chat_id, uid, i):
@@ -321,7 +321,7 @@ def finish(chat_id, uid):
 HELP = ("<b>Azazel Trader</b> — автономный торговый терминал.\n\n"
     "Я соберу твои параметры, объясню каждый и сохраню. Дальше использую их в каждом цикле.\n\n"
     "<b>Команды</b>\n/start — начать настройку\n/params — твои параметры\n/status — подписка и цикл\n"
-    "/report — статистика (для админа)\n/skills — доступные скилы\n/menu — профиль и быстрые ссылки\n/help — справка\n\n"
+    "/skills — доступные скилы\n/menu — профиль и быстрые ссылки\n/help — справка\n\n"
     "Вопросы — просто пиши текстом, я пойму.")
 
 SKILLS_TXT = ("<b>Доступные скилы</b>\n\n"
@@ -332,12 +332,12 @@ def cmd_app(chat_id, uid):
     """Mini App: otkrytie termina v Telegram."""
     if not APP_URL:
         return send(chat_id, "Mini App poka nedostupen.")
+    send_terminal_kb(chat_id)
     return send(chat_id,
         "<b>🚀 Azazel Trader</b>\n\n"
         + "Avtonomnyy torgovyy terminal v mini app: rynok, otbor tochek, vhody, stopy, razbor sdelok.\n\n"
         + "Nastroyki zdesz zhe — tyom zhe polzovatel, tot zhe Airtable.",
         [("Открыть терминал", APP_URL, "web_app")])
-    send_terminal_kb(chat_id)
 
 
 def cmd_params(chat_id, uid):
