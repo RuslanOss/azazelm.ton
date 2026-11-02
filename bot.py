@@ -8,6 +8,26 @@ import socket, ssl, http.client
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("azabot")
 
+
+def _load_env(path):
+    """Chitaet KEY=VALUE iz .env v okruzhenie. Bez zavisimostey."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            for raw in f:
+                line = raw.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                k = k.strip()
+                v = v.strip().strip('"').strip("'")
+                if k and k not in os.environ:
+                    os.environ[k] = v
+    except FileNotFoundError:
+        pass
+
+
+_load_env(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
+
 TOKEN  = os.environ.get("AZABOT_TOKEN", "").strip()
 BASE   = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
 CFG    = json.load(open(BASE, encoding="utf-8"))
@@ -321,7 +341,7 @@ def finish(chat_id, uid):
 HELP = ("<b>Azazel Trader</b> — автономный торговый терминал.\n\n"
     "Я соберу твои параметры, объясню каждый и сохраню. Дальше использую их в каждом цикле.\n\n"
     "<b>Команды</b>\n/start — начать настройку\n/params — твои параметры\n/status — подписка и цикл\n"
-    "/skills — доступные скилы\n/menu — профиль и быстрые ссылки\n/help — справка\n\n"
+    "/app — открыть терминал\n/skills — доступные скилы\n/menu — профиль и быстрые ссылки\n/help — справка\n\n"
     "Вопросы — просто пиши текстом, я пойму.")
 
 SKILLS_TXT = ("<b>Доступные скилы</b>\n\n"
@@ -379,7 +399,10 @@ def cmd_status(chat_id, uid):
         "<b>Статус</b>\n\n"
         + "Настройка: " + str(st) + " (" + str(prog if prog is not None else 0) + "%)\n"
         + "Подписка: " + str(sub) + "\n"
-        + "Автономный цикл: " + ("включён" if sub == "активна" else "выключен — нужна подписка"),
+        + "Автономный цикл: " + ("включён" if sub == "активна" else "выключен — нужна подписка")
+        + "\n" + ("Параметры заданы — цикл использует их."
+                  if prog is not None and int(prog or 0) >= 100
+                  else "Параметры ещё не заданы — /start."),
         [("Подключить Walt", "pay_usd")])
 
 
