@@ -1,0 +1,145 @@
+{
+  "_comment": "Статический профиль приложения Azazel Trader. Источник правды для скилов, расписания и параметров алгоритма. Не смешивать с autotrading_config.json — там runtime-состояние счёта.",
+  "app": "Azazel Trader",
+  "version": "1.0.0",
+  "source": "azazel-trader mini-app (azazel-trader-yz2uw75a.agent.mira.tg)",
+  "wallets": {
+    "ton": "UQCi-czlbdSHaUsUIfmnGjuCQia_Iq4ehomwik1ajLNgVHhX",
+    "keeper": "UQAintXt7mpJqxnTXJF_2qg4xm8S-hXDCxbW3fCo8Gu3vJc_",
+    "usdt_master": "EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs",
+    "usdt_decimals": 6
+  },
+  "pricing": {
+    "monthly_usd": 29,
+    "monthly_ton": 9.5,
+    "install_threshold": 500
+  },
+  "skills": [
+    {
+      "slug": "portfelnyy_analitik",
+      "name": "Портфельный аналитик",
+      "cron": "0 13 * * *",
+      "desc": "P&L, OI+CVD, ликвидации, разбор сделок, стратегии A/B/C"
+    },
+    {
+      "slug": "monitoring_rynka",
+      "name": "Мониторинг рынка",
+      "cron": "0 9,13,17,21 * * *",
+      "desc": "Скан топ-100: движения >5%, скачки объёма, точки входа"
+    },
+    {
+      "slug": "utrenniy_dajzhest",
+      "name": "Утренний дайджест",
+      "cron": "0 7 * * *",
+      "desc": "Календарь, почта и сообщения одним сводкой"
+    },
+    {
+      "slug": "mira_secretary",
+      "name": "Mira Secretary",
+      "cron": "0 8 * * *",
+      "desc": "Дайджест Telegram Business: 3 наблюдения по переписке"
+    },
+    {
+      "slug": "sortirovka_pochty",
+      "name": "Сортировка почты",
+      "cron": null,
+      "desc": "Приоритизация входящих, черновики ответов"
+    },
+    {
+      "slug": "sozdatel_kontent_plana",
+      "name": "Создатель контент-плана",
+      "cron": null,
+      "desc": "Идеи постов и расписание публикаций"
+    },
+    {
+      "slug": "otchyot_po_kontentu",
+      "name": "Отчёт по контенту",
+      "cron": "0 9 * * 1",
+      "desc": "Еженедельная эффективность контента"
+    },
+    {
+      "slug": "monitoring_metrik",
+      "name": "Мониторинг метрик",
+      "cron": "0 10 * * *",
+      "desc": "Ежедневные KPI-отчёты"
+    },
+    {
+      "slug": "lichnyj_astrolog",
+      "name": "Личный астролог",
+      "cron": "0 8 * * *",
+      "desc": "Гороскоп и астрологические инсайты"
+    },
+    {
+      "slug": "ezhednevnoe_taro",
+      "name": "Ежедневное Таро",
+      "cron": "0 8 * * *",
+      "desc": "Ежедневный расклад с персональной трактовкой"
+    },
+    {
+      "slug": "happy_birthday",
+      "name": "Поздравить с днём рождения",
+      "cron": null,
+      "desc": "Персональное стихотворение и открытка"
+    },
+    {
+      "slug": "pomoshchnik_s_domashkoy",
+      "name": "Помощник с домашкой",
+      "cron": null,
+      "desc": "Пошаговое объяснение решения"
+    },
+    {
+      "slug": "instagram_connect",
+      "name": "Instagram Connect",
+      "cron": null,
+      "desc": "Подключение Instagram по OAuth"
+    },
+    {
+      "slug": "myprice",
+      "name": "AI Slave",
+      "cron": null,
+      "desc": "Оценка пользователя по истории переписки"
+    }
+  ],
+  "algo": {
+    "stops": {
+      "alts_pct": 3,
+      "btc_eth_pct": 1.5,
+      "atr_mult": 1.0
+    },
+    "leverage": {
+      "alts_max": 5,
+      "btc_eth_max": 10
+    },
+    "rr_min": 2,
+    "btc_filter_pct": 2,
+    "funding_long_block_pct": 0.05,
+    "daily_loss_limit_usd": 15,
+    "max_stops_per_day": 3,
+    "correlation_cap": 2,
+    "timeframes": [
+      "15m",
+      "1h",
+      "4h"
+    ],
+    "indicators": {
+      "altcoins": [
+        "CVD",
+        "Open Interest",
+        "SuperTrend"
+      ],
+      "macro": [
+        "BTC dominance",
+        "crypto/stablecoin ratio"
+      ]
+    },
+    "auto_confirm": true,
+    "max_trades_per_day": 5,
+    "target_roi": "1:3"
+  },
+  "strategies": {
+    "A": "Sniper — 3+ сигнала v5, вход на закрытии 15m, объём выше среднего, макс 2/день",
+    "B": "Swing Hunter — цена у уровня, RSI <35/>65, разворотная 15m, стоп за свечу+0.5%, трейлинг +1R→breakeven",
+    "C": "CASCADE — серийный режим до 12 сделок, 5x/10x, стоп 10% ROI, тейк 1:2 ROI, 3 тактики слома тренда"
+  },
+  "migrated_from": "page-kw2hhn/config.json (страница удалена 2026-11-02)"
+}
