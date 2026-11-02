@@ -61,6 +61,9 @@ def _tg_rotate():
     return _tg["ip"]
 
 
+_STOP = False
+
+
 def _tg_call(method, path, payload=None, timeout=45):
     data = json.dumps(payload).encode() if payload is not None else None
     hdrs = {"Content-Type": "application/json"}
@@ -79,6 +82,9 @@ def _tg_call(method, path, payload=None, timeout=45):
             except Exception:
                 return f.status, raw
         except Exception as e:
+            if _STOP:
+                log.info("Ostanovka vo vremya zaprosa - prekryvaem")
+                return None, "stopping"
             err = e
             _tg["bad"] += 1
             nxt = _tg_rotate()
@@ -189,6 +195,8 @@ def tg(method, payload=None, retries=3):
     to = 15 if method == "getUpdates" else 30
     delay = 1.0
     for _ in range(retries):
+        if _STOP:
+            return None
         s, d = _tg_call("POST", path, payload, timeout=to)
         if s == 200: return d
         if s is None:
@@ -595,9 +603,6 @@ def handle_start_payload(chat_id, uid, name, username, payload):
     send_terminal_kb(chat_id)
     return start(chat_id, uid, name, username)
 
-_STOP = False
-
-
 def _on_signal(signum, frame):
     global _STOP
     _STOP = True
@@ -629,6 +634,8 @@ def main():
     while not _STOP:
         res = tg("getUpdates", {"offset": offset, "timeout": 25,
                                  "allowed_updates": ["message", "callback_query", "web_app_data"]})
+        if _STOP:
+            break
         if res is None:
             time.sleep(2)
             continue
