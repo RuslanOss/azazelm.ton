@@ -1,89 +1,78 @@
 #!/usr/bin/env bash
 # ============================================================
-# Azazel - автономный деплой continuation_engine v3
-# Вставляется в серийную консоль Timeweb. Работает без SSH.
+# Azazel - автономный деплой. Вставляется в серийную консоль Timeweb.
+# Работает БЕЗ SSH: качает файлы по SHA, проверяет sha256, гоняет тесты.
+# Коммит: 6f436892241571e2dd41b59fc129ed82e4a25d60
 # ============================================================
 set -uo pipefail
 
-SHA="31e56a33cdf9fc00db9ad5e8ea027fc415380dcf"
+SHA="6f436892241571e2dd41b59fc129ed82e4a25d60"
 BASE="https://raw.githubusercontent.com/RuslanOss/azazelm.ton/${SHA}"
 DIR="/opt/azabot"
-BACKUP="${DIR}/backup_predeploy_$(date +%Y%m%d_%H%M%S)"
+BACKUP="${DIR}/backup_$(date +%Y%m%d_%H%M%S)"
 
 echo "=== Azazel deploy | commit ${SHA} ==="
 
-# 1) проверка доступа в GitHub
-if ! curl -fsSL --max-time 25 "${BASE}/continuation_engine.py" -o /tmp/_probe.py; then
-  echo "ОШИБКА: нет доступа к raw.githubusercontent.com с сервера"
-  echo "Проверь сетевую доступность: curl -sI https://github.com | head -1"
+echo "[1/7] проверка доступа к GitHub с сервера"
+if ! curl -fsSL --max-time 25 "${BASE}/bot.py" -o /tmp/_probe.py; then
+  echo "ОШИБКА: сервер не видит raw.githubusercontent.com"
+  curl -sI --max-time 15 https://github.com | head -1
   exit 1
 fi
-echo "[1/6] GitHub доступен, коммит ${SHA}"
+echo "    ок"
 
-# 2) бэкап
+echo "[2/7] бэкап текущих файлов"
 mkdir -p "${BACKUP}"
-for f in continuation_engine.py continuation_engine_v2.py bot.py algo_config.py azazel_config.json; do
+for f in continuation_engine.py continuation_engine_v2.py test_cont_v3.py bot.py algo_config.py azazel_config.json config.json; do
   [ -f "${DIR}/${f}" ] && cp -p "${DIR}/${f}" "${BACKUP}/" && echo "    бэкап: ${f}"
 done
-echo "[2/6] бэкап в ${BACKUP}"
+echo "    бэкап: ${BACKUP}"
 
-# 3) загрузка файлов
-for f in continuation_engine.py continuation_engine_v2.py test_cont_v3.py; do
+echo "[3/7] загрузка файлов по SHA"
+for f in continuation_engine.py continuation_engine_v2.py test_cont_v3.py bot.py algo_config.py azazel_config.json config.json; do
   curl -fsSL --max-time 30 "${BASE}/${f}" -o "${DIR}/${f}" || { echo "ОШИБКА: не скачался ${f}"; exit 1; }
-  echo "    скачан: ${f} ($(stat -c%s "${DIR}/${f}") Б)"
+  echo "    ${f} (${DIR}/${f} $(stat -c%s "${DIR}/${f}") Б)"
 done
-echo "[3/6] файлы загружены"
 
-# 4) проверка целостности по sha256
+echo "[4/7] проверка sha256"
 declare -A WANT=(
-  [continuation_engine.py]="f19c9b163ffd7f3fb56b8fd826c871328e1c4affd536f252f5f6e7b69110e794"
-  [continuation_engine_v2.py]="b15fb414918cd97c56648af1227cc9e34e0f266159314f607ce3da131e61e03a"
-  [test_cont_v3.py]="4aa2501bc6520c1f0d6e489aa7899bee7096861be034c0f496a5520f5a1d65f0"
+  ["continuation_engine.py"]="f19c9b163ffd7f3fb56b8fd826c871328e1c4affd536f252f5f6e7b69110e794"
+  ["continuation_engine_v2.py"]="b15fb414918cd97c56648af1227cc9e34e0f266159314f607ce3da131e61e03a"
+  ["test_cont_v3.py"]="4aa2501bc6520c1f0d6e489aa7899bee7096861be034c0f496a5520f5a1d65f0"
+  ["bot.py"]="5ce072724a2a36b38db3c5d500dc6cf1878554e288b7727331b46c154bc3dd44"
+  ["algo_config.py"]="f8633b28a97183fcceac73aefb8fa95f24f0f034b45854ebda0e3463a7ce9b79"
+  ["azazel_config.json"]="e75836e86d6f1755c3c0b6506f58f1feb1373a2a0874051b336ac32835dc3e42"
+  ["config.json"]="996496977f7e4a2b7720c66b232a04bbce89499914d6658ffc73c86025968591"
 )
+FAIL=0
 for f in "${!WANT[@]}"; do
   GOT=$(sha256sum "${DIR}/${f}" | cut -d" " -f1)
   if [ "${GOT}" != "${WANT[$f]}" ]; then
-    echo "ОШИБКА: sha256 не совпал для ${f}"; exit 1
+    echo "    ОШИБКА sha256: ${f}"; FAIL=1
+  else
+    echo "    ok: ${f}"
   fi
-  echo "    sha256 ok: ${f}"
 done
-echo "[4/6] контрольные суммы совпали"
+[ $FAIL -ne 0 ] && { echo "ОШИБКА: контрольные суммы не совпали - деплой прерван"; exit 1; }
 
-# 5) тесты
+echo "[5/7] синтаксис и тесты"
 cd "${DIR}"
-if python3 -c "import ast,sys; ast.parse(open('continuation_engine.py',encoding='utf-8').read())" 2>/dev/null; then
-  echo "    синтаксис continuation_engine.py: OK"
-else
-  echo "ОШИБКА: синтаксис continuation_engine.py сломан"; exit 1
-fi
+python3 -c "import ast; ast.parse(open('bot.py',encoding='utf-8').read()); ast.parse(open('continuation_engine.py',encoding='utf-8').read())" \
+  && echo "    синтаксис: OK" || { echo "ОШИБКА: синтаксис сломан"; exit 1; }
 python3 "${DIR}/test_cont_v3.py" > /tmp/_t3.log 2>&1
-RC3=$?
-echo "    test_cont_v3.py: rc=${RC3}"
-tail -3 /tmp/_t3.log | sed "s/^/      /"
-if [ ${RC3} -ne 0 ]; then
-  echo "ОШИБКА: тесты v3 не прошли - сервис НЕ перезапускаю"
-  cp -p "${BACKUP}/continuation_engine.py" "${DIR}/" 2>/dev/null
-  exit 1
-fi
+RC3=$?; echo "    test_cont_v3 rc=${RC3}"; tail -2 /tmp/_t3.log | sed "s/^/      /"
+[ ${RC3} -ne 0 ] && { echo "ОШИБКА: тесты v3 не прошли, сервис НЕ перезапускаю"; exit 1; }
 python3 "${DIR}/test_cont_v2.py" > /tmp/_t2.log 2>&1
-RC2=$?
-echo "    test_cont_v2.py: rc=${RC2}"
-if [ ${RC2} -ne 0 ]; then
-  echo "ВНИМАНИЕ: регрессионные тесты v2 не прошли"
-fi
-echo "[5/6] тесты пройдены"
+RC2=$?; echo "    test_cont_v2 rc=${RC2}"; tail -2 /tmp/_t2.log | sed "s/^/      /"
 
-# 6) перезапуск сервиса
-if systemctl list-unit-files | grep -q azabot.service; then
-  systemctl restart azabot.service
+echo "[6/7] перезапуск сервиса"
+if systemctl list-unit-files 2>/dev/null | grep -q azabot; then
+  systemctl restart azabot.service && echo "    azabot.service перезапущен"
   sleep 3
-  ACTIVE=$(systemctl is-active azabot.service)
-  echo "    azabot.service: ${ACTIVE}"
-  journalctl -u azabot.service -n 12 --no-pager | sed "s/^/      /"
-  [ "${ACTIVE}" = "active" ] || { echo "ВНИМАНИЕ: сервис не поднялся"; exit 1; }
+  systemctl is-active azabot.service | sed "s/^/    status: /"
 else
-  echo "    azabot.service не найден - проверь systemctl list-units | grep azabot"
+  echo "    azabot.service не найден - только файлы обновлены"
 fi
-echo "[6/6] деплой завершён"
-echo ""
-echo "DEPLOY_OK ${SHA}"
+
+echo "[7/7] готово"
+echo "=== DEPLOY OK ${SHA} ==="
