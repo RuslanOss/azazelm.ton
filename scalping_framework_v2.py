@@ -4,7 +4,7 @@
 # ============================================================
 
 """
-СКАЛЬПИНГ-СТРАТЕГИИ ДЛЯ WALT PERPS (30s / 1m / 5m / 1h / 1d / 1w)
+СТРАТЕГИИ ДЛЯ WALT PERPS (15m / 1h / 4h)
 
 Топ-5 рынков по объёму (Walt, 21.10.2026):
   1. BTC   — $871M/сут, спред <0.01%, макс плечо 50x
@@ -33,7 +33,7 @@ TOP5_MARKETS = {
         "atr_14_pct": 2.1,
         "funding_hourly": 0.0,
         "scalp_leverage": 10,
-        "best_timeframes": ["30s", "1m", "5m"],
+        "best_timeframes": ["15m", "1h", "4h"],
     },
     "ETH": {
         "volume_24h": 355_747_373,
@@ -43,7 +43,7 @@ TOP5_MARKETS = {
         "atr_14_pct": 2.8,
         "funding_hourly": 0.0096,
         "scalp_leverage": 10,
-        "best_timeframes": ["30s", "1m", "5m"],
+        "best_timeframes": ["15m", "1h", "4h"],
     },
     "SOL": {
         "volume_24h": 69_513_022,
@@ -53,7 +53,7 @@ TOP5_MARKETS = {
         "atr_14_pct": 3.5,
         "funding_hourly": 0.0096,
         "scalp_leverage": 5,
-        "best_timeframes": ["1m", "5m"],
+        "best_timeframes": ["15m", "1h"],
     },
     "US100": {
         "volume_24h": 49_153_770,
@@ -63,7 +63,7 @@ TOP5_MARKETS = {
         "atr_14_pct": 1.5,
         "funding_hourly": 0.0032,
         "scalp_leverage": 10,
-        "best_timeframes": ["1m", "5m", "15m"],
+        "best_timeframes": ["15m", "1h", "4h"],
     },
     "ZEC": {
         "volume_24h": 47_026_599,
@@ -73,7 +73,7 @@ TOP5_MARKETS = {
         "atr_14_pct": 4.8,
         "funding_hourly": 0.0096,
         "scalp_leverage": 5,
-        "best_timeframes": ["1m", "5m"],
+        "best_timeframes": ["15m", "1h"],
     },
 }
 
@@ -126,36 +126,41 @@ DEPOSIT_TIERS = {
 }
 
 # ============================================================
-# СТРАТЕГИЯ 1: MOMENTUM SCALPING (30s – 1m)
+# СТРАТЕГИЯ 1: MOMENTUM SCALPING (15m)
 # ============================================================
 STRATEGY_MOMENTUM = {
     "name": "Momentum Scalping",
-    "timeframe": "30s – 1m",
+    "timeframe": "15m",
+    "timeframe_note": "переведено с 30s–1m: вход на закрытии 15m (правило A2 алгоритма v5)",
     "source": "manifoldbt.com, 6431 trades, ROI +11.2%",
     "indicators": {
-        "ema_fast": 5,
-        "ema_slow": 13,
+        "ema_fast": 9,
+        "ema_slow": 21,
         "volume_ma": 20,
     },
     "long": {
-        "condition": "EMA5 > EMA13 AND price > EMA5 AND volume > volume_ma * 1.5",
-        "entry": "market при подтверждении 2 свечей подряд",
-        "stop_loss_pct": -0.10,
-        "take_profit_pct": 0.20,
-        "max_hold_seconds": 120,
-        "trailing": "0.08% за входом после +0.10%",
+        "condition": "EMA9 > EMA21 AND price > EMA9 AND volume > volume_ma * 1.5",
+        "entry": "на закрытии 15m свечи (A2), подтверждение 2 свечи подряд",
+        "stop_loss_pct": -2.10,
+        "take_profit_pct": 4.20,
+        "stop_rule": "floor = 1.5% для BTC/ETH, 3.0% для альтов (правило 1); далее max(floor, atr_mult x ATR(14)) (правило 16). 2.10% = 1.0 x ATR BTC",
+        "max_hold_bars": 8,
+        "max_hold_note": "8 x 15m = 2 часа",
+        "trailing": "1.0 x ATR(14) за входом после +1R",
     },
     "short": {
-        "condition": "EMA5 < EMA13 AND price < EMA5 AND volume > volume_ma * 1.5",
-        "entry": "market при подтверждении 2 свечей подряд",
-        "stop_loss_pct": 0.10,
-        "take_profit_pct": -0.20,
-        "max_hold_seconds": 120,
-        "trailing": "0.08% за входом после -0.10%",
+        "condition": "EMA9 < EMA21 AND price < EMA9 AND volume > volume_ma * 1.5",
+        "entry": "на закрытии 15m свечи (A2), подтверждение 2 свечи подряд",
+        "stop_loss_pct": 2.10,
+        "take_profit_pct": -4.20,
+        "stop_rule": "floor = 1.5% для BTC/ETH, 3.0% для альтов (правило 1); далее max(floor, atr_mult x ATR(14)) (правило 16)",
+        "max_hold_bars": 8,
+        "max_hold_note": "8 x 15m = 2 часа",
+        "trailing": "1.0 x ATR(14) за входом после -1R",
     },
     "filters": {
         "min_volume_24h": 50_000_000,
-        "max_spread_pct": 0.03,
+        "max_spread_pct": 0.05,
         "avoid_news": True,
         "avoid_funding": True,
     },
@@ -168,28 +173,33 @@ STRATEGY_MOMENTUM = {
 # СТРАТЕГИЯ 2: RSI DIVERGENCE (1m)
 # ============================================================
 STRATEGY_RSI = {
-    "name": "RSI(7) Divergence",
-    "timeframe": "1m",
+    "name": "RSI Divergence",
+    "timeframe": "15m",
+    "timeframe_note": "переведено с 1m; RSI-период 7 -> 14 (на 15m RSI(7) слишком шумный)",
     "source": "xerogravity.com, 312 trades, win rate 68%",
     "indicators": {
-        "rsi_period": 7,
-        "rsi_oversold": 20,
-        "rsi_overbought": 80,
-        "volume_ma": 10,
+        "rsi_period": 14,
+        "rsi_oversold": 30,
+        "rsi_overbought": 70,
+        "volume_ma": 20,
     },
     "long": {
-        "condition": "RSI(7) < 20 AND volume > volume_ma * 1.3 AND price выше минимума предыдущих 5 баров",
-        "entry": "market",
-        "stop_loss_pct": -0.15,
-        "take_profit_pct": 0.30,
-        "max_hold_bars": 5,
+        "condition": "RSI(14) < 30 AND volume > volume_ma * 1.3 AND price выше минимума предыдущих 3 баров",
+        "entry": "на закрытии 15m свечи, подтверждение разворотной свечой (B2)",
+        "stop_loss_pct": -5.25,
+        "take_profit_pct": 10.50,
+        "stop_rule": "max(3% для альтов / 1.5% для BTC-ETH, 1.5 x ATR(14)) (правила 1 и 16). 5.25% = 1.5 x ATR SOL (3.5%) — худший рынок стратегии; для BTC 3.15%, для ETH 4.20%. Тейк = 2 x стоп (правило 3). ВНИМАНИЕ: atr_mult в azazel_config.json = 1.0, здесь применён 1.5 по правилу 16 v5 — расхождение зафиксировано осознанно.",
+        "max_hold_bars": 12,
+        "max_hold_note": "12 x 15m = 3 часа",
     },
     "short": {
-        "condition": "RSI(7) > 80 AND volume < volume_ma * 0.7 AND price ниже максимума предыдущих 5 баров",
-        "entry": "market",
-        "stop_loss_pct": 0.15,
-        "take_profit_pct": -0.30,
-        "max_hold_bars": 5,
+        "condition": "RSI(14) > 70 AND volume < volume_ma * 0.7 AND price ниже максимума предыдущих 3 баров",
+        "entry": "на закрытии 15m свечи, подтверждение разворотной свечой (B2)",
+        "stop_loss_pct": 5.25,
+        "take_profit_pct": -10.50,
+        "stop_rule": "max(3% для альтов / 1.5% для BTC-ETH, 1.5 x ATR(14)) (правила 1 и 16). 5.25% = 1.5 x ATR SOL (3.5%) — худший рынок стратегии; для BTC 3.15%, для ETH 4.20%. Тейк = 2 x стоп (правило 3). ВНИМАНИЕ: atr_mult в azazel_config.json = 1.0, здесь применён 1.5 по правилу 16 v5 — расхождение зафиксировано осознанно.",
+        "max_hold_bars": 12,
+        "max_hold_note": "12 x 15m = 3 часа",
     },
     "filters": {
         "min_volume_24h": 500_000,
@@ -198,7 +208,7 @@ STRATEGY_RSI = {
     },
     "win_rate": 0.68,
     "avg_rr": 2.0,
-    "best_markets": ["BTC", "ETH", "SOL", "GRAM"],
+    "best_markets": ["BTC", "ETH", "SOL"],
 }
 
 # ============================================================
@@ -206,7 +216,8 @@ STRATEGY_RSI = {
 # ============================================================
 STRATEGY_CVD = {
     "name": "CVD + Volume Profile",
-    "timeframe": "1m",
+    "timeframe": "15m",
+    "timeframe_note": "переведено с 1m",
     "source": "xerogravity.com, win rate 64%, avg profit 0.8%",
     "indicators": {
         "cvd_lookback": 20,
@@ -216,16 +227,20 @@ STRATEGY_CVD = {
     "long": {
         "condition": "price у LVA/поддержки AND CVD_divergence > 3 баров (цена падает, CVD растёт)",
         "entry": "limit на уровне LVA",
-        "stop_loss": "за противоположной стороной LVA (мин 0.15%)",
-        "take_profit": "ближайший HVN или +0.8%",
-        "max_hold_bars": 10,
+        "stop_loss": "за противоположной стороной LVA, не менее max(3%, atr_mult x ATR(14))",
+        "take_profit": "ближайший HVN или 2 x стоп (правило 3 v5)",
+        "stop_rule": "правила 1, 3 и 16 v5",
+        "max_hold_bars": 16,
+        "max_hold_note": "16 x 15m = 4 часа",
     },
     "short": {
         "condition": "price у LVA/сопротивления AND CVD_divergence > 3 баров (цена растёт, CVD падает)",
         "entry": "limit на уровне LVA",
-        "stop_loss": "за противоположной стороной LVA (мин 0.15%)",
-        "take_profit": "ближайший HVN или -0.8%",
-        "max_hold_bars": 10,
+        "stop_loss": "за противоположной стороной LVA, не менее max(3%, atr_mult x ATR(14))",
+        "take_profit": "ближайший HVN или 2 x стоп (правило 3 v5)",
+        "stop_rule": "правила 1, 3 и 16 v5",
+        "max_hold_bars": 16,
+        "max_hold_note": "16 x 15m = 4 часа",
     },
     "filters": {
         "min_cvd_divergence_bars": 3,
@@ -237,11 +252,12 @@ STRATEGY_CVD = {
 }
 
 # ============================================================
-# СТРАТЕГИЯ 4: ATR + BOLLINGER SQUEEZE (5m)
+# СТРАТЕГИЯ 4: ATR + BOLLINGER SQUEEZE (1h)
 # ============================================================
 STRATEGY_BOLLINGER = {
     "name": "ATR + Bollinger Squeeze",
-    "timeframe": "5m",
+    "timeframe": "1h",
+    "timeframe_note": "переведено с 5m; R:R 1:2 уже выполнялся (1.5 ATR стоп / 3.0 ATR тейк)",
     "source": "cryptoprofitcalc.com, win rate 60-65%",
     "indicators": {
         "bollinger_period": 20,
@@ -252,18 +268,20 @@ STRATEGY_BOLLINGER = {
     "long": {
         "condition": "полосы сжаты (ширина < ATR*0.3) минимум 5 баров AND цена закрылась выше верхней полосы AND объём > среднего",
         "entry": "market на пробое",
-        "stop_loss": "1.5 * ATR(14) под входом",
-        "take_profit": "3.0 * ATR(14) над входом",
+        "stop_loss": "max(3% для альтов / 1.5% для BTC-ETH, 1.5 * ATR(14)) под входом",
+        "take_profit": "3.0 * ATR(14) над входом (= 2 x стоп)",
         "trailing_stop": "1.0 * ATR(14)",
-        "max_hold_bars": 20,
+        "max_hold_bars": 24,
+        "max_hold_note": "24 x 1h = 24 часа",
     },
     "short": {
         "condition": "полосы сжаты (ширина < ATR*0.3) минимум 5 баров AND цена закрылась ниже нижней полосы AND объём > среднего",
         "entry": "market на пробое",
-        "stop_loss": "1.5 * ATR(14) над входом",
-        "take_profit": "3.0 * ATR(14) под входом",
+        "stop_loss": "max(3% для альтов / 1.5% для BTC-ETH, 1.5 * ATR(14)) над входом",
+        "take_profit": "3.0 * ATR(14) под входом (= 2 x стоп)",
         "trailing_stop": "1.0 * ATR(14)",
-        "max_hold_bars": 20,
+        "max_hold_bars": 24,
+        "max_hold_note": "24 x 1h = 24 часа",
     },
     "filters": {
         "min_squeeze_bars": 5,
@@ -275,11 +293,11 @@ STRATEGY_BOLLINGER = {
 }
 
 # ============================================================
-# СВИНГ-СТРАТЕГИЯ (1h – 1d)
+# СВИНГ-СТРАТЕГИЯ (1h – 4h)
 # ============================================================
 STRATEGY_SWING_DAILY = {
     "name": "Swing Daily (V4 Rules)",
-    "timeframe": "1h – 1d",
+    "timeframe": "1h – 4h",
     "source": "Алгоритм v4, адаптировано",
     "indicators": {
         "supertrend_period": 10,
@@ -311,7 +329,7 @@ STRATEGY_SWING_DAILY = {
 # ============================================================
 STRATEGY_SWING_WEEKLY = {
     "name": "Swing Weekly (Macro)",
-    "timeframe": "4h – 1w",
+    "timeframe": "4h",
     "source": "Алгоритм v4, макро-адаптация",
     "indicators": {
         "ema_50": 50,
@@ -346,13 +364,28 @@ RISK_MANAGEMENT = {
         "max_total_margin_pct": 80,
         "max_correlated_exposure_pct": 50,
         "btc_filter_active": True,
+        "min_risk_reward": 2,
+        "btc_filter_pct": 2,
+        "funding_long_block_pct": 0.05,
+        "max_correlated_positions": 2,
     },
     "scalp": {
-        "max_concurrent": 3,
-        "max_daily_trades": 30,
+        # Переведено с 30s/1m/5m на 15m/1h/4h (2026-11-02).
+        # Было: max_concurrent 3, max_daily_trades 30, стопы 0.10-0.15%.
+        # 30 сделок в день на 15m — это 30 входов за 7.5 часов, нереально.
+        # Новые значения взяты из algo-конфига (azazel_config.json).
+        "max_concurrent": 2,
+        "max_daily_trades": 5,
         "daily_loss_limit_pct": 10,
-        "cooldown_after_loss_min": 5,
-        "cooldown_after_win_min": 2,
+        "daily_loss_limit_usd": 15,
+        "max_stops_per_day": 3,
+        "stop_pct": 3.0,
+        "stop_pct_btc_eth": 1.5,
+        "atr_stop_mult": 1.0,
+        "leverage_alts_max": 5,
+        "leverage_btc_eth_max": 10,
+        "cooldown_after_loss_min": 30,
+        "cooldown_after_win_min": 15,
         "position_size_after_loss_pct": 25,
         "position_size_after_win_pct": 33,
     },
@@ -371,24 +404,28 @@ RISK_MANAGEMENT = {
 # ============================================================
 # СЕЛЕКТОР РЕЖИМА ТОРГОВЛИ
 # ============================================================
+# Ключи режимов ("scalp_only", "scalp_daily", "full_spectrum") сохранены
+# намеренно: на них завязаны ROI_MODEL, MODE_BAND и TIER_MODE_MULTIPLIER,
+# а это калибровочная модель, которую в этом переводе не трогали.
+# Состав таймфреймов приведён к 15m / 1h / 4h.
 TRADING_MODES = {
     "scalp_only": {
-        "name": "Только скальпинг",
-        "timeframes": ["30s", "1m", "5m"],
-        "strategies": ["Momentum", "RSI", "CVD", "Bollinger"],
-        "max_hold": "5 минут",
+        "name": "Только 15m (интрадей)",
+        "timeframes": ["15m"],
+        "strategies": ["Momentum", "RSI", "CVD"],
+        "max_hold": "4 часа",
         "best_for": "Микро и средний депозит",
     },
     "scalp_daily": {
-        "name": "Скальпинг + Дневные",
-        "timeframes": ["30s", "1m", "5m", "1h", "4h"],
+        "name": "15m / 1h / 4h",
+        "timeframes": ["15m", "1h", "4h"],
         "strategies": ["Momentum", "RSI", "CVD", "Bollinger", "Swing Daily"],
         "max_hold": "72 часа",
         "best_for": "Средний и крупный депозит",
     },
     "full_spectrum": {
         "name": "Полный спектр",
-        "timeframes": ["30s", "1m", "5m", "1h", "4h", "1d", "1w"],
+        "timeframes": ["15m", "1h", "4h", "1d", "1w"],
         "strategies": ["Momentum", "RSI", "CVD", "Bollinger", "Swing Daily", "Swing Weekly"],
         "max_hold": "14 дней",
         "best_for": "Крупный депозит",
@@ -400,6 +437,10 @@ TRADING_MODES = {
 # ============================================================
 TAKER_FEE = 0.0005
 
+# ВНИМАНИЕ: ROI_MODEL НЕ ПЕРЕСЧИТАН под 15m/1h/4h.
+# Калибровка (win_rate, win_move_pct, loss_move_pct) выведена из статистики
+# 30s/1m/5m. На 15m эти движения (0.8% вин) нереальны — модель завышает
+# ожидание. Пересчёт требует новой статистики, которой пока нет.
 ROI_MODEL = {
     "scalp_only": {
         "max_trades_per_day": 10, "leverage": 5, "win_rate": 0.62,
