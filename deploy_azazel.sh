@@ -1,48 +1,50 @@
 #!/usr/bin/env bash
 # ============================================================
-# Azazel - автономный деплой. Вставляется в серийную консоль Timeweb.
-# Работает БЕЗ SSH: качает файлы по SHA, проверяет sha256, гоняет тесты.
-# Коммит: 6f436892241571e2dd41b59fc129ed82e4a25d60
+# Azazel - DEPLOY. Vstaetsya v serialnuyu konsol Timeweb.
+# Rabotaet BEZ SSH. Kommit: 7be50d8f42080783c36f58b989816606b227f353
 # ============================================================
 set -uo pipefail
 
-SHA="6f436892241571e2dd41b59fc129ed82e4a25d60"
+SHA="7be50d8f42080783c36f58b989816606b227f353"
 BASE="https://raw.githubusercontent.com/RuslanOss/azazelm.ton/${SHA}"
 DIR="/opt/azabot"
 BACKUP="${DIR}/backup_$(date +%Y%m%d_%H%M%S)"
 
-echo "=== Azazel deploy | commit ${SHA} ==="
+echo "=== Azazel DEPLOY | ${SHA} ==="
 
-echo "[1/7] проверка доступа к GitHub с сервера"
+echo "[1/7] dostup k GitHub s servera"
 if ! curl -fsSL --max-time 25 "${BASE}/bot.py" -o /tmp/_probe.py; then
-  echo "ОШИБКА: сервер не видит raw.githubusercontent.com"
+  echo "ОШИБКА: server ne vidit raw.githubusercontent.com"
   curl -sI --max-time 15 https://github.com | head -1
   exit 1
 fi
-echo "    ок"
+echo "    ok"
 
-echo "[2/7] бэкап текущих файлов"
+echo "[2/7] bekap"
 mkdir -p "${BACKUP}"
-for f in continuation_engine.py continuation_engine_v2.py test_cont_v3.py bot.py algo_config.py azazel_config.json config.json; do
-  [ -f "${DIR}/${f}" ] && cp -p "${DIR}/${f}" "${BACKUP}/" && echo "    бэкап: ${f}"
+for f in ${LIST}; do
+  [ -f "${DIR}/${f}" ] && cp -p "${DIR}/${f}" "${BACKUP}/" && echo "    bekap: ${f}"
 done
-echo "    бэкап: ${BACKUP}"
+echo "    bekap: ${BACKUP}"
 
-echo "[3/7] загрузка файлов по SHA"
-for f in continuation_engine.py continuation_engine_v2.py test_cont_v3.py bot.py algo_config.py azazel_config.json config.json; do
-  curl -fsSL --max-time 30 "${BASE}/${f}" -o "${DIR}/${f}" || { echo "ОШИБКА: не скачался ${f}"; exit 1; }
+echo "[3/7] zagruzka po SHA"
+for f in ${LIST}; do
+  curl -fsSL --max-time 30 "${BASE}/${f}" -o "${DIR}/${f}" || { echo "ОШИБКА: ne skachalsya ${f}"; exit 1; }
   echo "    ${f} (${DIR}/${f} $(stat -c%s "${DIR}/${f}") Б)"
 done
 
-echo "[4/7] проверка sha256"
+echo "[4/7] proverka sha256"
 declare -A WANT=(
   ["continuation_engine.py"]="f19c9b163ffd7f3fb56b8fd826c871328e1c4affd536f252f5f6e7b69110e794"
   ["continuation_engine_v2.py"]="b15fb414918cd97c56648af1227cc9e34e0f266159314f607ce3da131e61e03a"
   ["test_cont_v3.py"]="4aa2501bc6520c1f0d6e489aa7899bee7096861be034c0f496a5520f5a1d65f0"
-  ["bot.py"]="5ce072724a2a36b38db3c5d500dc6cf1878554e288b7727331b46c154bc3dd44"
+  ["bot.py"]="b0da3c71954337430b8ee5287d8011a71554388ad5a30d0c2a616ce2050ceb85"
   ["algo_config.py"]="f8633b28a97183fcceac73aefb8fa95f24f0f034b45854ebda0e3463a7ce9b79"
   ["azazel_config.json"]="e75836e86d6f1755c3c0b6506f58f1feb1373a2a0874051b336ac32835dc3e42"
   ["config.json"]="996496977f7e4a2b7720c66b232a04bbce89499914d6658ffc73c86025968591"
+  ["azabot.service"]="a274e24530a6c6967d3aa0e1182d8ba3d4f493b3fabdbbe887f9ea0ecb625f1e"
+  ["install.sh"]="9e458e8d45c404a0a259465532456ae505179818e6ab5bb9b109801119eaed26"
+  [".env.example"]="d7fdc875ae98e4b0af261489ff020e922964d897ad3c965c641a95fb290753c9"
 )
 FAIL=0
 for f in "${!WANT[@]}"; do
@@ -53,26 +55,27 @@ for f in "${!WANT[@]}"; do
     echo "    ok: ${f}"
   fi
 done
-[ $FAIL -ne 0 ] && { echo "ОШИБКА: контрольные суммы не совпали - деплой прерван"; exit 1; }
+[ $FAIL -ne 0 ] && { echo "ОШИБКА: checksumy ne sovpali - DEPLOY PRERVAN"; exit 1; }
 
-echo "[5/7] синтаксис и тесты"
+echo "[5/7] sintaksis i testy"
 cd "${DIR}"
 python3 -c "import ast; ast.parse(open('bot.py',encoding='utf-8').read()); ast.parse(open('continuation_engine.py',encoding='utf-8').read())" \
-  && echo "    синтаксис: OK" || { echo "ОШИБКА: синтаксис сломан"; exit 1; }
+  && echo "    sintaksis: OK" || { echo "ОШИБКА: sintaksis sloman"; exit 1; }
+bash -n "${DIR}/install.sh" && echo "    install.sh: OK" || { echo "ОШИБКА: install.sh sloman"; exit 1; }
 python3 "${DIR}/test_cont_v3.py" > /tmp/_t3.log 2>&1
 RC3=$?; echo "    test_cont_v3 rc=${RC3}"; tail -2 /tmp/_t3.log | sed "s/^/      /"
-[ ${RC3} -ne 0 ] && { echo "ОШИБКА: тесты v3 не прошли, сервис НЕ перезапускаю"; exit 1; }
+[ ${RC3} -ne 0 ] && { echo "ОШИБКА: testy v3 ne proshli"; exit 1; }
 python3 "${DIR}/test_cont_v2.py" > /tmp/_t2.log 2>&1
 RC2=$?; echo "    test_cont_v2 rc=${RC2}"; tail -2 /tmp/_t2.log | sed "s/^/      /"
 
-echo "[6/7] перезапуск сервиса"
-if systemctl list-unit-files 2>/dev/null | grep -q azabot; then
-  systemctl restart azabot.service && echo "    azabot.service перезапущен"
-  sleep 3
-  systemctl is-active azabot.service | sed "s/^/    status: /"
+echo "[6/7] .env"
+if [ -f "${DIR}/.env" ]; then
+  echo "    .env uzhe est - ne trogayu"
 else
-  echo "    azabot.service не найден - только файлы обновлены"
+  cp "${DIR}/.env.example" "${DIR}/.env" && chmod 600 "${DIR}/.env" && echo "    sozdan .env iz .env.example (tokeny pustye - zapolni!)"
 fi
 
-echo "[7/7] готово"
+echo "[7/7] gotovo"
 echo "=== DEPLOY OK ${SHA} ==="
+echo "TEPER: vypolni ustanovku:"
+echo "  curl -fsSL https://raw.githubusercontent.com/RuslanOss/azazelm.ton/${SHA}/install.sh -o /tmp/i.sh && bash /tmp/i.sh"
