@@ -3,7 +3,7 @@
 # Azazel Trader - bot-nastavnik. Airtable API (2 tablicy) + Telegram Bot API (long polling).
 # Tolko standartnaya biblioteka Python 3.9+. Bez zavisimostey.
 import os, json, time, urllib.request, urllib.error, urllib.parse, datetime, sys, logging
-import socket, ssl, http.client
+import socket, ssl, http.client, signal
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("azabot")
@@ -595,7 +595,21 @@ def handle_start_payload(chat_id, uid, name, username, payload):
     send_terminal_kb(chat_id)
     return start(chat_id, uid, name, username)
 
+_STOP = False
+
+
+def _on_signal(signum, frame):
+    global _STOP
+    _STOP = True
+    log.warning("Poluchen signal %s - zavershaem graceful", signum)
+
+
 def main():
+    for _sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            signal.signal(_sig, _on_signal)
+        except Exception:
+            pass
     me = None
     for attempt in range(120):
         me = tg("getMe")
@@ -612,11 +626,13 @@ def main():
     else:
         log.warning("Airtable nedostupen - zapisi ne sohranayutsya, prover AIRTABLE_TOKEN i bazu v .env")
     offset = 0
-    while True:
-        res = tg("getUpdates", {"offset": offset, "timeout": 0,
+    while not _STOP:
+        res = tg("getUpdates", {"offset": offset, "timeout": 25,
                                  "allowed_updates": ["message", "callback_query", "web_app_data"]})
         if res is None:
             time.sleep(2)
+            continue
+        if not (res or {}).get("result"):
             continue
         for u in (res or {}).get("result", []):
             offset = u["update_id"] + 1
@@ -647,7 +663,6 @@ def main():
                         elif cmd == "/report": cmd_report(chat_id, uid)
                         elif cmd == "/skills": send(chat_id, SKILLS_TXT)
                         elif cmd == "/menu": send(chat_id, menu_text(uid, name, username), menu_buttons())
-                        elif cmd == "/app": cmd_app(chat_id, uid)
                         elif cmd in ("/app", "/terminal"): cmd_app(chat_id, uid)
                         elif cmd in ("/wallet", "/subscribe"): cmd_status(chat_id, uid)
                         elif cmd in ("/help", "/support"): send(chat_id, HELP)
@@ -662,6 +677,7 @@ def main():
             except Exception as e:
                 log.exception("handler err: %s", e)
         time.sleep(0.5)
+    log.info("Bot ostanovlen")
 
 if __name__ == "__main__":
     if not TOKEN or not AT_TOKEN or not AT_BASE:
