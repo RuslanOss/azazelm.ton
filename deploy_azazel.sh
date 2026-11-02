@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # ============================================================
 # Azazel - DEPLOY. Vstaetsya v serialnuyu konsol Timeweb.
-# Rabotaet BEZ SSH. Kommit: 7be50d8f42080783c36f58b989816606b227f353
+# Rabotaet BEZ SSH. Kommit: 62a34c18967fb70872cdfde7fc289f745db42aad
 # ============================================================
 set -uo pipefail
 
-SHA="7be50d8f42080783c36f58b989816606b227f353"
+SHA="62a34c18967fb70872cdfde7fc289f745db42aad"
 BASE="https://raw.githubusercontent.com/RuslanOss/azazelm.ton/${SHA}"
 DIR="/opt/azabot"
 BACKUP="${DIR}/backup_$(date +%Y%m%d_%H%M%S)"
