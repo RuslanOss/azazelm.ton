@@ -38,6 +38,21 @@ ADMIN_ID  = int(os.environ.get("ADMIN_TG_ID") or CFG.get("admin_tg_id") or 0)
 TG_API    = "https://api.telegram.org/bot" + TOKEN
 
 
+# ---------- Azazel: avtonomnyy torgovyy cikl ----------
+# Import v otdelnom try: esli modul ne na meste - bot dolzhen zhe rabotat,
+# a ne otkazyvat'sja zapustit'sja. Torgovlya - needinaya funkciya bota.
+try:
+    import azazel_cycle_runner as _CR
+except Exception as _e:
+    _CR = None
+    log.warning("cycle runner nedostupen: %s", _e)
+
+CYCLE_INTERVAL_MIN = int(os.environ.get("AZAZEL_CYCLE_INTERVAL_MIN") or 15)
+CYCLE_ENABLED = (os.environ.get("AZAZEL_CYCLE_ENABLED") or "1").strip().lower() not in ("0", "false", "no")
+_CYCLE_STATE = {"last_run": 0.0, "last_rep": None, "runs": 0}
+
+
+
 TG_HOST = "api.telegram.org"
 # Pul IP DC Telegram: pervyye tri stabilno otvechayut, ostalnyye - rezerv.
 TG_IPS = ["149.154.167.220", "149.154.166.110", "149.154.161.145",
@@ -372,7 +387,7 @@ def finish(chat_id, uid):
 
 HELP = ("<b>Azazel Trader</b> — автономный торговый терминал.\n\n"
     "Я соберу твои параметры, объясню каждый и сохраню. Дальше использую их в каждом цикле.\n\n"
-    "<b>Команды</b>\n/start — начать настройку\n/params — твои параметры\n/status — подписка и цикл\n/ключ — подключить ключ Walt API\n"
+    "<b>Команды</b>\n/start — начать настройку\n/params — твои параметры\n/status — подписка и цикл\n/ключ — подключить ключ Walt API\n/cycle — прогнать торговый цикл\n/metrics — метрики счёта\n"
     "/app — открыть терминал\n/skills — доступные скилы\n/menu — профиль и быстрые ссылки\n/help — справка\n\n"
     "Вопросы — просто пиши текстом, я пойму.")
 
@@ -513,7 +528,8 @@ def _cb_inner(chat_id, uid, data):
         if s["step"] + 1 < len(STEPS): return ask(chat_id, uid, s["step"] + 1)
         return finish(chat_id, uid)
     if data == "skip":
-        s = SESS[uid]
+        s = SESS.setdefault(uid, {"tg_id": uid, "step": 0, "data": {},
+                                  "page": None, "name": ""})
         key, _, _, _, _, dflt = STEPS[s["step"]]
         s["data"][key] = dflt
         if s["step"] + 1 < len(STEPS): return ask(chat_id, uid, s["step"] + 1)
@@ -521,6 +537,20 @@ def _cb_inner(chat_id, uid, data):
     if data == "view_params": return cmd_params(chat_id, uid)
     if data == "walt_key":
         return cmd_walt_key(chat_id, uid)
+    if data == "cycle":
+        return cmd_cycle(chat_id, uid)
+    if data == "metrics_page":
+        return cmd_metrics_page(chat_id, uid)
+    if data == "metrics_data":
+        return cmd_metrics_data(chat_id, uid)
+    if data == "settings_page":
+        return cmd_settings_page(chat_id, uid)
+    if data == "save_settings":
+        try:
+            return cmd_save_settings(chat_id, uid, SESS.get(uid, {}).get("data", {}).get("params") or {})
+        except Exception as e:
+            log.exception("save_settings: %s", e)
+            return send(chat_id, "Не смог сохранить настройки.")
     if data == "wallet_new":
         s = SESS.setdefault(uid, {"tg_id": uid, "step": 0, "data": {}, "page": None, "name": ""})
         s["wallet_only"] = True
@@ -529,7 +559,9 @@ def _cb_inner(chat_id, uid, data):
         return ask(chat_id, uid, WALLET_IDX)
     if data == "check_pay": return cmd_status(chat_id, uid)
     if data == "restart":
-        SESS[uid]["step"] = 0; SESS[uid]["data"] = {}
+        s = SESS.setdefault(uid, {"tg_id": uid, "step": 0, "data": {},
+                                  "page": None, "name": ""})
+        s["step"] = 0; s["data"] = {}
         return ask(chat_id, uid, 0)
     if data in ("pay_usd", "pay_ton"):
         tariff = "$29/мес" if data == "pay_usd" else "9.5 TON/мес"
@@ -565,6 +597,9 @@ def text_handler(chat_id, uid, txt):
         if low in ("ключ", "ключ api", "api ключ", "walt ключ", "/key", "walt_key"):
             return cmd_walt_key(chat_id, uid)
         if low in ("параметры", "мои параметры", "/params"): return cmd_params(chat_id, uid)
+        if low in ("цикл", "/cycle", "прогон"): return cmd_cycle(chat_id, uid)
+        if low in ("метрики", "/metrics"): return cmd_metrics_data(chat_id, uid)
+        if low in ("настройки", "/settings"): return cmd_settings_page(chat_id, uid)
         if low in ("статус", "/status"): return cmd_status(chat_id, uid)
         if low in ("статистика", "/report", "отчёт", "отчет"): return cmd_report(chat_id, uid)
         if low in ("скилы", "/skills"): return send(chat_id, SKILLS_TXT)
@@ -631,23 +666,66 @@ def start(chat_id, uid, name, username):
                 [("Мои параметры", "view_params"), ("Настроить заново", "restart"), ("Подписка", "check_pay")])
     return ask(chat_id, uid, 0)
 
-def handle_webapp_data(chat_id, uid, data_str):
-    """Obrabotka web_app_data iz Mini App: sverka podpisi initData + komanda."""
-    import hmac, hashlib, urllib.parse
+def _authorize_initdata(cmd, init_data, event_uid=None):
+    """Proverka podpisi initData dlya Mini App. -> (allowed, uid, reason).
+
+    Chuvstvitel'nye komandy (walt_key, settings_save) trebuyut podpisannyy
+    init_data; ostal'nye prokhodyat i bez nego.
+    """
     try:
-        raw = urllib.parse.parse_qs(data_str)
-        if "hash" in raw:
-            received = raw["hash"][0]
-            check = raw.get("check_string", [""])[0]
-            secret = hmac.new(b"WebAppData", TOKEN.encode(), hashlib.sha256).digest()
-            calc = hmac.new(secret, check.encode(), hashlib.sha256).hexdigest()
-            if not hmac.compare_digest(calc, received):
-                log.warning("web_app_data: bad signature, otklonen")
-                return send(chat_id, "Не удалось проверить подпись запроса.")
-        payload = json.loads(data_str)
+        import azazel_initdata as _id
+    except Exception as e:
+        log.warning("azazel_initdata nedostupen: %s", e)
+        #Fallback: baza bez proverki podpisi - tol'ko publichnye komandy.
+        if str(cmd or "").strip().lower().lstrip("/") in ("walt_key", "settings_save"):
+            return False, None, "proverka podpisi nedostupna"
+        return True, event_uid, "proverka podpisi nedostupna"
+    return _id.authorize(cmd, init_data, TOKEN, event_uid=event_uid)
+
+
+def handle_webapp_data(chat_id, uid, data_str):
+    """Obrabotka web_app_data iz Mini App: sverka podpisi initData + komanda.
+
+    Formaty:
+      - JSON: {"cmd": "...", "init_data": "<signed initData>"}
+      - query-string: initData pryamoy strokoy s polem hash.
+    """
+    import hmac, hashlib, urllib.parse
+    raw = (data_str or "").strip()
+    payload = None
+    init_data = ""
+
+    # 1) JSON-payload
+    try:
+        j = json.loads(raw)
+        if isinstance(j, dict):
+            payload = j
+            init_data = (j.get("init_data") or j.get("initData")
+                         or j.get("initdata") or "")
     except Exception:
-        payload = {"cmd": str(data_str or "").strip()}
+        pass
+
+    # 2) query-string s initData
+    if payload is None:
+        try:
+            q = urllib.parse.parse_qs(raw, keep_blank_values=True)
+            payload = {k: (v[0] if isinstance(v, list) and v else v)
+                       for k, v in q.items()}
+            if "hash" in q:
+                init_data = raw
+        except Exception:
+            payload = {}
+
+    if not isinstance(payload, dict):
+        payload = {}
     cmd = str(payload.get("cmd") or "").strip().lower().lstrip("/")
+
+    # 3) Avtorizatsiya po podpisi initData
+    ok, auth_uid, reason = _authorize_initdata(cmd, init_data, uid)
+    if not ok:
+        log.warning("web_app_data rejected: %s (cmd=%s)", reason, cmd)
+        return send(chat_id, "Не удалось проверить подпись запроса: " + reason)
+
     log.info("web_app_data from uid %s: %s", uid, cmd)
     if cmd == "start":
         return start(chat_id, uid, "", "")
@@ -659,7 +737,17 @@ def handle_webapp_data(chat_id, uid, data_str):
         return cmd_report(chat_id, uid)
     if cmd in ("menu", "home"):
         return send(chat_id, menu_text(uid, "", ""), menu_buttons())
+    if cmd == "walt_key":
+        return cmd_walt_key(chat_id, uid)
+    if cmd == "settings_save":
+        params = payload.get("params") or {}
+        try:
+            return cmd_save_settings(chat_id, uid, params)
+        except Exception as e:
+            log.exception("settings_save: %s", e)
+            return send(chat_id, "Не смог сохранить настройки.")
     return send(chat_id, "Не понял команду: " + cmd)
+
 # ── Кошелёк Walt: отдельный вход до оплаты ──
 WALLET_IDX = next((i for i, s_ in enumerate(STEPS) if s_[0] == "wallet"), len(STEPS) - 1)
 
@@ -711,6 +799,7 @@ def finish_wallet(chat_id, uid, addr):
 # Ключ и секрет создаются вручную в дашборде Walt (профиль Trader, 2FA,
 # привязка к Futures-стратегии). Формат ключа: wlt_bot_ + 64 hex,
 # секрет: 64 hex. Проверяем живость подписанным запросом account().
+DATA_DIR = os.environ.get("AZAZEL_DATA_DIR") or "/opt/azazel-data"
 WALT_DATA_DIR = os.environ.get("AZAZEL_DATA_DIR") or "/opt/azazel-data"
 _HEX = "0123456789abcdefABCDEF"
 
@@ -799,22 +888,236 @@ def _walt_finish_key(chat_id, uid, secret):
     data["walt_secret"] = secret
     if not _walt_user_save(uid, data):
         return send(chat_id, "Не смог сохранить ключ на диск. Попробуй ещё раз.")
-    res = db_query_uid(USERS_DB, uid)
-    rows = (res or {}).get("records", [])
-    if rows:
-        page_update(USERS_DB, rows[0]["id"], {
-            "Walt API Key": key, "Walt API Secret": secret, "Walt ключ добавлен": True})
+    at_ok = False
+    rec = None
+    try:
+        res = db_query_uid(USERS_DB, uid)
+        rows = (res or {}).get("records", [])
+        if rows:
+            rec = rows[0]["id"]
+            at_res = page_update(USERS_DB, rec, {
+                "Walt API Key": key, "Walt API Secret": secret, "Walt ключ добавлен": True})
+            at_ok = at_res is not None
+    except Exception as e:
+        log.error("walt key: Airtable isklonenie: %s", e)
+        at_ok = False
     s.pop("walt_step", None); s.pop("walt_key", None)
     bal = ((info or {}).get("balance") or {})
     total = sum(v.get("free", 0) for v in bal.values())
     log_event("walt ключ", uid, s.get("name", ""), details="ключ проверен, доступен")
     notify_admin("Walt ключ добавлен: " + (s.get("name", "") or str(uid)))
+    if at_ok:
+        return send(chat_id,
+            "<b>Ключ Walt подключён и проверен.</b>\n\n"
+            + "Баланс стратегии: " + ("$" + format(total, ".2f") if total else "0 (пусто)") + "\n"
+            + "Ключ сохранён — автономный цикл сможет видеть баланс и позиции.\n\n"
+            + "Дальше — подписка.",
+            [("$29/мес", "pay_usd"), ("9.5 TON/мес", "pay_ton")])
+    # Chestnyj chastichnyj proval: JSON zapisan, Airtable - net.
     return send(chat_id,
-        "<b>Ключ Walt подключён и проверен.</b>\n\n"
-        + "Баланс стратегии: " + ("$" + format(total, ".2f") if total else "0 (пусто)") + "\n"
-        + "Ключ сохранён — автономный цикл сможет видеть баланс и позиции.\n\n"
-        + "Дальше — подписка.",
-        [("$29/мес", "pay_usd"), ("9.5 TON/мес", "pay_ton")])
+        "<b>⚠️ Ключ сохранён не полностью</b>\n\n"
+        + "✅ На сервере записан — торговый цикл ключ увидит.\n"
+        + "❌ В Airtable не записать — в панели настроек ключ не появится.\n\n"
+        + "Попробуй ещё раз. Если повторяется — напиши, разберёмся с доступом.")
+
+
+def _ensure_data_dir():
+    try:
+        os.makedirs(DATA_DIR, exist_ok=True)
+        return True
+    except Exception as e:
+        log.error("data dir: %s", e); return False
+
+def _user_json_path(uid):
+    return os.path.join(DATA_DIR, str(uid) + ".json")
+
+def write_user_json(uid, data):
+    """Zapisyvaet per-user JSON na server - etot fail chitaet front-end."""
+    if not _ensure_data_dir():
+        return None
+    p = _user_json_path(uid)
+    try:
+        with open(p, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        os.chmod(p, 0o644)
+        return p
+    except Exception as e:
+        log.error("write_user_json: %s", e); return None
+
+def _get_user_fields(uid):
+    res = db_query_uid(USERS_DB, uid)
+    rows = (res or {}).get("records", [])
+    if not rows: return None, {}
+    return rows[0].get("id"), (rows[0].get("fields") or {})
+
+def cmd_settings_page(chat_id, uid):
+    """Otкрыvaet stranicu nastroyk (optros) vnutri Telegram."""
+    url = CFG.get("settings_url") or os.environ.get("AZAZEL_SETTINGS_URL") or ""
+    if not url:
+        return send(chat_id, "Страница настроек ещё не настроена.")
+    return send(chat_id, "<b>⚙️ Настройки</b>\n\nОткроется внутри Telegram. Выбери параметры и нажми «Сохранить и запустить».",
+        [("Открыть настройки", url, "web_app")])
+
+def cmd_metrics_page(chat_id, uid):
+    """Otкрыvaet stranicu metrik (ostatok, dvizhenie sredstv, PnL)."""
+    url = CFG.get("metrics_url") or os.environ.get("AZAZEL_METRICS_URL_PAGE") or ""
+    if not url:
+        return send(chat_id, "Страница метрик ещё не настроена.")
+    return send(chat_id, "<b>📊 Метрики счёта</b>\n\nОстаток депозита, движение средств за 24ч и онлайн PnL.",
+        [("Открыть метрики", url, "web_app")])
+
+def cmd_save_settings(chat_id, uid, params):
+    """Sohranyaet parametry iz optrosa fronta v Airtable."""
+    rec, fields = _get_user_fields(uid)
+    if rec is None:
+        return send(chat_id, "Сначала /start — создам твой профиль.")
+    AD = algo_defaults()
+    def num(k, dflt):
+        try: return float(params.get(k, dflt))
+        except Exception: return dflt
+    upd = {
+        "Статус": "готов",
+        "Тир депозита": params.get("tier", "средний"),
+        "Режим": params.get("mode", "scalp_daily"),
+        "Плечо альты": num("lev_alts", 5),
+        "Плечо BTC/ETH": num("lev_btc", 10),
+        "Стоп альты %": num("stop_alts", AD.get("Стоп альты %", 3)),
+        "Стоп BTC/ETH %": num("stop_btc", AD.get("Стоп BTC/ETH %", 1.5)),
+        "ATR-множитель": num("atr", AD.get("ATR-множитель", 1.0)),
+        "Мин R:R": num("rr", AD.get("Мин R:R", 2)),
+        "BTC-фильтр %": num("btc_filter", AD.get("BTC-фильтр %", 2)),
+        "Блок лонга фандинг %": num("funding", AD.get("Блок лонга фандинг %", 0.05)),
+        "Дневной лимит убытка $": num("loss_limit", AD.get("Дневной лимит убытка $", 15)),
+        "Стопов в день": int(num("max_stops", AD.get("Стопов в день", 3))),
+        "Correlation cap": int(num("corr_cap", AD.get("Correlation cap", 2))),
+        "Сделок в день": int(num("max_trades", AD.get("Сделок в день", 5))),
+        "Таймфреймы": params.get("timeframes", "15m,1h,4h"),
+        "Автоподтверждение": params.get("autoconfirm") == "True",
+        "Прогресс настройки": 100,
+    }
+    page_update(USERS_DB, rec, upd)
+    log_event("параметры", uid, "", source="frontend", details=json.dumps(params, ensure_ascii=False))
+    log.info("settings saved for uid %s", uid)
+    return send(chat_id, "<b>✅ Настройки сохранены</b>\n\n"
+        + "Тир: " + str(upd["Тир депозита"]) + " · Режим: " + str(upd["Режим"]) + "\n"
+        + "Плечо: " + str(upd["Плечо альты"]) + "x альты / " + str(upd["Плечо BTC/ETH"]) + "x BTC-ETH\n"
+        + "Стопы: " + str(upd["Стоп альты %"]) + "% / " + str(upd["Стоп BTC/ETH %"]) + "%\n"
+        + "R:R 1:" + str(upd["Мин R:R"]) + " · лимит −$" + str(upd["Дневной лимит убытка $"]) + "/день\n\n"
+        + "Автономный цикл использует эти параметры. Изменить — /settings",
+        [("Мои параметры", "view_params"), ("Метрики счёта", "metrics_page")])
+
+def _read_user_json(uid):
+    p = _user_json_path(uid)
+    if not os.path.exists(p): return None
+    try:
+        with open(p, encoding="utf-8") as f: return json.load(f)
+    except Exception: return None
+
+def cmd_metrics_data(chat_id, uid):
+    """Pokazyvaet metriki v chate i obnovlyaet JSON dlya fronta."""
+    j = _read_user_json(uid) or {}
+    b = j.get("balance") or {}
+    pnl = j.get("pnl") or {}
+    fl = j.get("flow24") or {}
+    def fm(x):
+        try: return ("%.2f" % float(x))
+        except Exception: return "—"
+    txt = ("<b>📊 Метрики счёта</b>\n\n"
+        + "Остаток депозита: $" + fm(b.get("total")) + " (свободно $" + fm(b.get("free")) + ")\n"
+        + "Движение за 24ч: " + fm(fl.get("net")) + " (внесено $" + fm(fl.get("deposit")) + ", выведено $" + fm(fl.get("withdraw")) + ")\n"
+        + "Онлайн PnL: " + fm(pnl.get("open")) + "\n"
+        + "PnL за 24ч: " + fm(pnl.get("day24")) + "\n"
+        + "Позиций: " + str(len(j.get("positions") or [])) + "\n\n"
+        + "Обновлено: " + str(j.get("updated") or "—"))
+    return send(chat_id, txt, [("Открыть метрики", CFG.get("metrics_url") or "", "web_app")] if CFG.get("metrics_url") else None)
+
+def _cycle_get_profile(uid):
+    """Polya profile iz Airtable dlya odnogo polzovatelya."""
+    rec, fields = _get_user_fields(uid)
+    return fields or {}
+
+
+def cycle_run_once(uid=None, log_it=True):
+    """Odin progon torgovogo cikla. -> otchet rannera.
+
+    idet po vsem podgotovlennym polzovatelyam (ili tolko k odnomu uid).
+    """
+    if _CR is None:
+        return {"reason": "modul cikla nedostupen", "ran": 0, "reports": []}
+    try:
+        rep = _CR.run_all(DATA_DIR, _cycle_get_profile, log=(log if log_it else None),
+                          only_uid=uid)
+    except Exception as e:
+        log.exception("cycle run failed: %s", e)
+        return {"reason": "sboy: %s" % str(e)[:200], "ran": 0, "reports": []}
+    _CYCLE_STATE["last_run"] = time.time()
+    _CYCLE_STATE["last_rep"] = rep
+    _CYCLE_STATE["runs"] = _CYCLE_STATE.get("runs", 0) + 1
+    if log_it:
+        log.info("cycle: ran=%s skipped=%s traded=%s", rep.get("ran"),
+                 rep.get("skipped"), rep.get("traded"))
+    return rep
+
+
+def _cycle_loop():
+    """Fonovyy planirovshchik: cikl kazhdye CYCLE_INTERVAL_MIN minut.
+
+    Otdelnyy potok, chtoby ne meshat long-pollingu Telegram.
+    """
+    while not _STOP:
+        try:
+            time.sleep(60)
+            if _STOP:
+                break
+            if not CYCLE_ENABLED:
+                continue
+            last = _CYCLE_STATE.get("last_run") or 0
+            if (time.time() - last) < CYCLE_INTERVAL_MIN * 60:
+                continue
+            cycle_run_once()
+        except Exception:
+            log.exception("cycle loop error")
+            time.sleep(60)
+
+
+def _start_cycle_thread():
+    if not CYCLE_ENABLED:
+        log.info("avtonomnyy cikl vyklyuchen (AZAZEL_CYCLE_ENABLED)")
+        return None
+    if _CR is None:
+        log.warning("avtonomnyy cikl nedostupen: net moduly")
+        return None
+    try:
+        import threading
+        t = threading.Thread(target=_cycle_loop, name="azazel-cycle", daemon=True)
+        t.start()
+        log.info("avtonomnyy cikl zapushchen: interval %d min", CYCLE_INTERVAL_MIN)
+        return t
+    except Exception as e:
+        log.warning("ne udalos zapustit planirovshchik: %s", e)
+        return None
+
+
+def cmd_cycle(chat_id, uid):
+    """Ruchnoy progon cikla dlya polzovatelya."""
+    rep = cycle_run_once(uid=uid)
+    if _CR is None:
+        return send(chat_id, "<b>Цикл недоступен</b>\n\nМодуль торгового цикла не установлен.")
+    mine = [r for r in (rep.get("reports") or []) if r.get("uid") == uid]
+    if not mine:
+        return send(chat_id, "<b>Цикл</b>\n\nТы ещё не допущен к циклу.")
+    r = mine[0]
+    if r.get("skipped"):
+        return send(chat_id, "<b>Цикл пропущен</b>\n\nПричина: " + str(r.get("reason") or "неизвестно"))
+    lines = ["<b>Цикл отработал</b>\n",
+             "Причина: " + str(r.get("reason") or "-"),
+             "Планов: " + str(r.get("plans") or 0),
+             "Исполнено: " + str(r.get("executed") or 0)]
+    errs = r.get("errors") or []
+    if errs:
+        lines.append("\nОшибки: " + str(len(errs)))
+        lines.append("<code>" + str(errs[0])[:300] + "</code>")
+    return send(chat_id, chr(10).join(lines))
 
 
 def handle_start_payload(chat_id, uid, name, username, payload):
@@ -825,6 +1128,14 @@ def handle_start_payload(chat_id, uid, name, username, payload):
         return cmd_algo(chat_id, uid)
     if p == "params":
         return cmd_params(chat_id, uid)
+    if p == "cycle":
+        return cmd_cycle(chat_id, uid)
+    if p == "metrics":
+        return cmd_metrics_page(chat_id, uid)
+    if p == "metrics_data":
+        return cmd_metrics_data(chat_id, uid)
+    if p == "settings":
+        return cmd_settings_page(chat_id, uid)
     if p == "status":
         return cmd_status(chat_id, uid)
     if p == "report":
@@ -861,6 +1172,7 @@ def main():
     if not me or not me.get("ok"):
         log.error("getMe ne srabotal - prover token ili set v .env"); return
     log.info("Bot zapushchen: @%s | admin=%s", me["result"].get("username"), ADMIN_ID)
+    _start_cycle_thread()
     _aq = db_query(EVENTS_DB, page_size=1)
     if _aq:
         log.info("Airtable dostupen: tablica sobytiy otvechaet")
