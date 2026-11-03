@@ -421,6 +421,31 @@ def cmd_status(chat_id, uid):
         [("Перейти в Walt", WALT_URL, "url")])
 
 
+def cmd_algo(chat_id, uid):
+    """Nastroyki algoritma torgovli: svodka + knopki."""
+    res = db_query_uid(USERS_DB, uid)
+    rows = (res or {}).get("records", [])
+    p = (rows[0].get("fields") or {}) if rows else {}
+    def g(k, sel=False):
+        v = p.get(k)
+        if v is None or v == "": return "\u2014"
+        if sel: return str(v)
+        if isinstance(v, bool): return "\u0434\u0430" if v else "\u043d\u0435\u0442"
+        return str(v)
+    head = ("\u041d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438 \u0430\u043b\u0433\u043e\u0440\u0438\u0442\u043c\u0430 \u0442\u043e\u0440\u0433\u043e\u0432\u043b\u0438"
+            + ("" if rows else " \u2014 \u043d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438 \u0435\u0449\u0451 \u043d\u0435 \u0441\u043e\u0431\u0440\u0430\u043d\u044b"))
+    body = ("\u0422\u0438\u0440: " + g("\u0422\u0438\u0440 \u0434\u0435\u043f\u043e\u0437\u0438\u0442\u0430", 1)
+            + " \u00b7 \u0420\u0435\u0436\u0438\u043c: " + g("\u0420\u0435\u0436\u0438\u043c", 1)
+            + "\n\u041f\u043b\u0435\u0447\u043e: " + g("\u041f\u043b\u0435\u0447\u043e \u0430\u043b\u044c\u0442\u044b") + "x / " + g("\u041f\u043b\u0435\u0447\u043e BTC/ETH") + "x"
+            + "\n\u0421\u0442\u043e\u043f\u044b: " + g("\u0421\u0442\u043e\u043f \u0430\u043b\u044c\u0442\u044b %") + "% / " + g("\u0421\u0442\u043e\u043f BTC/ETH %") + "%"
+            + " \u00b7 R:R 1:" + g("\u041c\u0438\u043d R:R"))
+    btns = [("\u2699\ufe0f \u041d\u0430\u0441\u0442\u0440\u043e\u0438\u0442\u044c \u043f\u0430\u0440\u0430\u043c\u0435\u0442\u0440\u044b", "settings")]
+    if APP_URL:
+        btns.append(("\U0001f680 \u041e\u0442\u043a\u0440\u044b\u0442\u044c \u0442\u0435\u0440\u043c\u0438\u043d\u0430\u043b", APP_URL, "web_app"))
+    btns.append("\U0001f4ca \u0421\u0442\u0430\u0442\u0443\u0441")
+    btns.append("\U0001f4c6 \u041f\u0430\u0440\u0430\u043c\u0435\u0442\u0440\u044b")
+    return send(chat_id, "<b>" + head + "</b>\n\n" + body, btns)
+
 def cmd_report(chat_id, uid):
     if not ADMIN_ID or uid != ADMIN_ID:
         return send(chat_id, "Нет доступа.")
@@ -599,6 +624,8 @@ def handle_start_payload(chat_id, uid, name, username, payload):
     """Razbor /start <payload> iz deep-link Mini App."""
     p = (payload or "").strip().lower().lstrip("/")
     log.info("start payload: %s (uid %s)", p, uid)
+    if p == "algo":
+        return cmd_algo(chat_id, uid)
     if p == "params":
         return cmd_params(chat_id, uid)
     if p == "status":
