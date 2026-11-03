@@ -234,3 +234,61 @@ if __name__ == "__main__":
     print("skills:", len(cfg.get("skills", [])))
     for t, v, n in build_overrides(cfg):
         print(f"  {t} = {v}  ({n})")
+
+
+# ============================================================
+# EXTRA: плоские перекрытия профиля пользователя.
+# Ключи профиля -> плоские ключи движка (см. continuation_engine).
+# ============================================================
+
+PROFILE_KEYS = [
+    "stop_alts", "stop_btc", "atr", "rr", "btc_filter", "funding",
+    "loss_limit", "max_stops", "corr_cap", "max_trades",
+    "lev_alts", "lev_btc",
+]
+
+_PROFILE_SECTIONS = ("algo", "profile")
+
+
+def _flat_scalars(d):
+    """Плоские скалярные значения словаря (без вложенных секций)."""
+    out = {}
+    if not isinstance(d, dict):
+        return out
+    for k, v in d.items():
+        if k in _PROFILE_SECTIONS:
+            continue
+        if isinstance(v, dict):
+            continue
+        if v is None:
+            continue
+        out[k] = v
+    return out
+
+
+def build_extra(config=None):
+    """Собрать плоские перекрытия extra из конфига.
+
+    Приоритет: profile > algo > плоские ключи верхнего уровня.
+    None-значения игнорируются. От пустого - пустой dict.
+    """
+    out = {}
+    if not isinstance(config, dict):
+        return out
+    out.update(_flat_scalars(config))
+    algo = config.get("algo")
+    if isinstance(algo, dict):
+        for k, v in algo.items():
+            if v is not None:
+                out[k] = v
+    prof = config.get("profile")
+    if isinstance(prof, dict):
+        for k, v in prof.items():
+            if v is not None:
+                out[k] = v
+    return out
+
+
+def build_extra_from_config(config=None):
+    """То же, но с приоритетом секции algo (профиль поверх)."""
+    return build_extra(config)
