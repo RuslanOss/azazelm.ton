@@ -475,30 +475,82 @@ def is_btc_eth(symbol):
     return str(symbol).upper() in BTC_ETH
 
 
-def stop_for(symbol, price, candles, cfg):
+# ============================================================
+# EXTRA: плоские перекрытия профиля пользователя (плечо, стопы,
+# лимиты). Должны доезжать до КАЖДОГО решения движка, иначе
+# пользовательские настройки риска молча игнорируются.
+# ============================================================
+
+def _resolve_extra(cfg=None, extra=None):
+    """Собрать плоские перекрытия из cfg["algo"] и явного extra.
+
+    Приоритет: явный extra > cfg["algo"] > cfg["profile"].
+    None-значения не затирают более низкий приоритет.
+    """
+    out = {}
+    cfg = cfg or {}
+    # algo - базовый, profile - поверх него
+    for src in (cfg.get("algo"), cfg.get("profile")):
+        if isinstance(src, dict):
+            for k, v in src.items():
+                if v is not None:
+                    out[k] = v
+    if isinstance(extra, dict):
+        for k, v in extra.items():
+            if v is not None:
+                out[k] = v
+    return out
+
+
+def _ex_num(extra, key, default=None):
+    """Число из extra; None/мусор -> default."""
+    v = (extra or {}).get(key)
+    if v is None:
+        return default
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return default
+
+
+def stop_for(symbol, price, candles, cfg, extra=None):
     """Стоп: max(минимальный %, ATR x atr_mult). -> (stop_price, stop_pct, reason)."""
     st = cfg["stops"]
-    floor = st["btc_eth_pct"] if is_btc_eth(symbol) else st["alts_pct"]
+    ex = extra or {}
+    if is_btc_eth(symbol):
+        floor = _ex_num(ex, "stop_btc", st["btc_eth_pct"])
+    else:
+        floor = _ex_num(ex, "stop_alts", st["alts_pct"])
+    atr_mult = _ex_num(ex, "atr", st["atr_mult"])
     ap = atr_pct(candles)
-    atr_stop = ap * st["atr_mult"]
+    atr_stop = ap * atr_mult
     use = max(floor, atr_stop)
-    reason = ("ATR x %.1f (ATR %.2f%%)" % (st["atr_mult"], ap)
+    reason = ("ATR x %.1f (ATR %.2f%%)" % (atr_mult, ap)
               if atr_stop > floor else "минимум %.1f%%" % floor)
     return price * (1 - use / 100.0), use, reason
 
 
-def leverage_for(symbol, funding_pct, cfg):
-    """Плечо по фандингу (правило v5.2). -> (leverage, reason)."""
+def leverage_for(symbol, funding_pct, cfg, extra=None):
+    """Плечо по фандингу (правило v5.2). -> (leverage, reason).
+
+    extra["lev_alts"] / extra["lev_btc"] - пользовательский потолок:
+    может только УМЕНЬШИТЬ базовый потолок, но не увеличить его.
+    """
     lv = cfg["leverage"]
+    ex = extra or {}
     if not is_btc_eth(symbol):
-        return lv["alts_max"], "альт, максимум %dx" % lv["alts_max"]
+        cap = int(_ex_num(ex, "lev_alts", lv["alts_max"]))
+        cap = max(1, min(cap, int(lv["alts_max"])))
+        return cap, "альт, максимум %dx" % cap
+    btc_cap = int(_ex_num(ex, "lev_btc", lv["btc_eth_max"]))
+    btc_cap = max(1, min(btc_cap, int(lv["btc_eth_max"])))
     if funding_pct is None:
-        return lv["btc_eth_max"], "BTC/ETH, фандинг неизвестен -> %dx" % lv["btc_eth_max"]
+        return btc_cap, "BTC/ETH, фандинг неизвестен -> %dx" % btc_cap
     if funding_pct > 0.05:
-        return 3, "фандинг %.4f%%/ч > 0.05%% -> 3x" % funding_pct
+        return min(3, btc_cap), "фандинг %.4f%%/ч > 0.05%% -> 3x" % funding_pct
     if funding_pct >= 0.01:
-        return 5, "фандинг %.4f%%/ч -> 5x" % funding_pct
-    return lv["btc_eth_max"], "фандинг %.4f%%/ч < 0.01%% -> %dx" % (funding_pct, lv["btc_eth_max"])
+        return min(5, btc_cap), "фандинг %.4f%%/ч -> 5x" % funding_pct
+    return btc_cap, "фандинг %.4f%%/ч < 0.01%% -> %dx" % (funding_pct, btc_cap)
 
 
 def target_from_stop(entry, stop_price, side, rr):
@@ -509,11 +561,12 @@ def target_from_stop(entry, stop_price, side, rr):
     return entry + risk * rr if side == "long" else entry - risk * rr
 
 
-def btc_filter_check(symbol, side, btc_ctx, cfg):
+def btc_filter_check(symbol, side, btc_ctx, cfg, extra=None):
     """Правило v5.4: шорт альтов запрещён при BTC в 2% от сопротивления.
     btc_ctx: {'price':..,'resistance':..,'support':..,'bars_since_break':..}
     -> (allowed: bool, reason: str)
     """
+    thr = _ex_num(extra, "btc_filter", cfg["btc_filter_pct"])
     if side != "short" or is_btc_eth(symbol):
         return True, ""
     if not btc_ctx:
@@ -524,12 +577,12 @@ def btc_filter_check(symbol, side, btc_ctx, cfg):
     if not price or not res:
         return True, "BTC-фильтр: сопротивление неизвестно"
     dist = 100.0 * (res - price) / price
-    if dist <= cfg["btc_filter_pct"]:
+    if dist <= thr:
         return False, ("BTC в %.2f%% от сопротивления $%.0f (фильтр %.0f%%) - "
-                       "шорт альтов запрещён" % (dist, res, cfg["btc_filter_pct"]))
+                       "шорт альтов запрещён" % (dist, res, thr))
     if sup:
         d_sup = 100.0 * (price - sup) / price
-        if d_sup <= cfg["btc_filter_pct"]:
+        if d_sup <= thr:
             return False, ("BTC в %.2f%% от поддержки $%.0f - шорт альтов запрещён"
                            % (d_sup, sup))
     return True, "BTC-фильтр пройден (%.2f%% до сопротивления)" % dist
@@ -545,23 +598,35 @@ def funding_block_check(symbol, side, funding_pct, cfg):
     return True, ""
 
 
-def correlation_cap_check(symbol, positions, cfg):
-    """Правило v5.14: максимум N позиций с одинаковой BTC-корреляцией."""
-    cap = cfg["correlation_cap"]
-    same = [p for p in positions
-            if str(p.get("symbol", "")).upper() == str(symbol).upper()]
-    if len(same) >= cap:
-        return False, ("уже %d позиций в %s (cap %d)"
-                       % (len(same), symbol, cap))
-    return True, "correlation cap %d - ок" % cap
+def correlation_cap_check(symbol, positions, cfg, extra=None):
+    """Правило v5.14: максимум N позиций в одной BTC-группе.
+
+    Группа - все позиции, кроме BTC: BTC сам по себе не занимает
+    место в альт-группе (у него своя корреляция), ETH - занимает.
+    """
+    cap = int(_ex_num(extra, "corr_cap", cfg["correlation_cap"]))
+    if cap < 1:
+        cap = 1
+    sym = str(symbol or "").upper()
+    group = [p for p in (positions or [])
+             if str(p.get("symbol", "")).upper() != "BTC"]
+    if sym == "BTC":
+        return True, "BTC не занимает место в группе альтов"
+    if len(group) >= cap:
+        return False, ("потолок корреляции: уже %d позиций в группе "
+                       "(cap %d)" % (len(group), cap))
+    return True, "correlation cap %d - ок (в группе %d)" % (cap, len(group))
 
 
-def daily_limit_check(trades_today, pnl_today, cfg):
+def daily_limit_check(trades_today, pnl_today, cfg, extra=None):
     """Правило v5.7: стоп на день при -$15 или 3 стопах."""
-    if pnl_today is not None and pnl_today <= -cfg["daily_loss_limit_usd"]:
-        return False, "дневной лимит убытка $%.0f исчерпан" % cfg["daily_loss_limit_usd"]
-    if trades_today >= cfg["max_trades_per_day"]:
-        return False, "лимит сделок в день (%d) исчерпан" % cfg["max_trades_per_day"]
+    ex = extra or {}
+    loss_limit = _ex_num(ex, "loss_limit", cfg["daily_loss_limit_usd"])
+    max_trades = int(_ex_num(ex, "max_trades", cfg["max_trades_per_day"]))
+    if pnl_today is not None and pnl_today <= -loss_limit:
+        return False, "дневной лимит убытка $%.0f исчерпан" % loss_limit
+    if trades_today >= max_trades:
+        return False, "лимит сделок в день (%d) исчерпан" % max_trades
     return True, ""
 
 
@@ -669,7 +734,7 @@ def decide_position(position, candles, cfg, funding_hist=None):
 
 # ---------- ТОЧКИ ВХОДА ----------
 
-def find_entries(candidates, cfg, state=None):
+def find_entries(candidates, cfg, state=None, extra=None):
     """
     candidates: список dict(symbol, side, candles, price, funding_pct, btc_ctx)
     Возвращает список намерений на вход (отфильтрованных по правилам v5).
@@ -680,7 +745,8 @@ def find_entries(candidates, cfg, state=None):
     trades_today = state.get("trades_today", 0)
     stops_today = state.get("stops_today", 0)
 
-    ok_limit, why_limit = daily_limit_check(trades_today, pnl_today, cfg)
+    ex = _resolve_extra(cfg, extra)
+    ok_limit, why_limit = daily_limit_check(trades_today, pnl_today, cfg, ex)
     ok_stops, why_stops = stop_count_check(stops_today, cfg)
 
     intents = []
@@ -709,13 +775,13 @@ def find_entries(candidates, cfg, state=None):
                             "reason": r_fund})
             continue
 
-        ok_btc, r_btc = btc_filter_check(symbol, side, cand.get("btc_ctx"), cfg)
+        ok_btc, r_btc = btc_filter_check(symbol, side, cand.get("btc_ctx"), cfg, ex)
         if not ok_btc:
             intents.append({"symbol": symbol, "side": side, "action": "skip",
                             "reason": r_btc})
             continue
 
-        ok_corr, r_corr = correlation_cap_check(symbol, positions, cfg)
+        ok_corr, r_corr = correlation_cap_check(symbol, positions, cfg, ex)
         if not ok_corr:
             intents.append({"symbol": symbol, "side": side, "action": "skip",
                             "reason": r_corr})
@@ -738,11 +804,11 @@ def find_entries(candidates, cfg, state=None):
                                                 ", ".join(active) or "нет"))})
             continue
 
-        lev, lev_reason = leverage_for(symbol, funding, cfg)
-        stop_price, stop_pct, stop_reason = stop_for(symbol, price, candles, cfg)
+        lev, lev_reason = leverage_for(symbol, funding, cfg, ex)
+        stop_price, stop_pct, stop_reason = stop_for(symbol, price, candles, cfg, ex)
         if side == "short":
             stop_price = price * (1 + stop_pct / 100.0)
-        rr = cfg["rr_min"]
+        rr = _ex_num(ex, "rr", cfg["rr_min"])
         target = target_from_stop(price, stop_price, side, rr)
 
         intents.append({
@@ -766,7 +832,7 @@ def find_entries(candidates, cfg, state=None):
 
 
 def engine_cycle(candidates=None, positions=None, cfg=None, src="defaults",
-                 state=None, funding_map=None):
+                 state=None, funding_map=None, extra=None):
     """
     Один прогон движка.
     candidates: dict(symbol -> candles) либо список кандидатов.
@@ -806,7 +872,7 @@ def engine_cycle(candidates=None, positions=None, cfg=None, src="defaults",
                               "btc_ctx": (cc.get("btc_ctx") if isinstance(cc, dict) else None)})
         else:
             cands = candidates
-        entries = find_entries(cands, cfg, state)
+        entries = find_entries(cands, cfg, state, extra)
 
     return {
         "config_source": src,
@@ -996,7 +1062,7 @@ def scan_top5_for_entry(candidates, cfg=None, state=None):
 
 
 def open_position(symbol, side, price, candles, cfg=None, funding_pct=None,
-                  margin_usd=None, btc_ctx=None):
+                  margin_usd=None, btc_ctx=None, extra=None):
     """
     Сформировать параметры позиции для открытия.
     НЕ открывает её - возвращает спецификацию ордера для Walt.
@@ -1004,14 +1070,15 @@ def open_position(symbol, side, price, candles, cfg=None, funding_pct=None,
     if cfg is None:
         cfg, _ = load_config()
     candles = [norm(c) for c in candles]
-    lev, lev_reason = leverage_for(symbol, funding_pct, cfg)
-    stop_price, stop_pct_base, stop_reason = stop_for(symbol, price, candles, cfg)
+    ex = _resolve_extra(cfg, extra)
+    lev, lev_reason = leverage_for(symbol, funding_pct, cfg, ex)
+    stop_price, stop_pct_base, stop_reason = stop_for(symbol, price, candles, cfg, ex)
     if side == "short":
         # stop_for() всегда даёт стоп ниже цены (семантика лонга) - для шорта инвертируем
         stop_price = price * (1 + stop_pct_base / 100.0)
-    rr = cfg["rr_min"]
+    rr = _ex_num(ex, "rr", cfg["rr_min"])
     target = target_from_stop(price, stop_price, side, rr)
-    return {
+    out = {
         "symbol": symbol,
         "side": side,
         "price": round(price, 6),
@@ -1024,6 +1091,33 @@ def open_position(symbol, side, price, candles, cfg=None, funding_pct=None,
         "reason": ("плечо %dx (%s); стоп %.2f%% (%s); цель по R:R 1:%d"
                    % (lev, lev_reason, stop_pct_base, stop_reason, rr)),
     }
+    # ---- sizing: маржа -> номинал -> юниты -> риск ----
+    # Правило риска: не более 33% маржи в риске (риск = номинал * стоп%).
+    try:
+        margin = float(margin_usd or 0.0)
+    except (TypeError, ValueError):
+        margin = 0.0
+    if margin > 0:
+        notional = margin * lev
+        units = notional / price if price else 0.0
+        risk = notional * stop_pct_base / 100.0
+        max_risk = margin * 0.33
+        if risk > max_risk:
+            # ужимаем номинал под риск-кап: не превышаем 33% маржи
+            scale = max_risk / risk if risk else 0.0
+            notional = notional * scale
+            units = units * scale
+            risk = risk * scale
+        out["margin_used"] = round(notional / lev, 6) if lev else 0.0
+        out["notional_usd"] = round(notional, 6)
+        out["units"] = round(units, 8)
+        out["risk_usd"] = round(risk, 6)
+    else:
+        out["margin_used"] = 0.0
+        out["notional_usd"] = 0.0
+        out["units"] = 0.0
+        out["risk_usd"] = 0.0
+    return out
 
 
 def partial_close(position, price, extension_number=1, cfg=None):
@@ -1066,3 +1160,70 @@ def trailing_stop_after_extension(symbol, side, entry, price, extension_number,
     return {"symbol": symbol, "action": "trail", "new_stop": round(stop, 6),
             "reason": "расширение %d: стоп %.2f%% за ценой $%.6f"
                       % (extension_number, off, stop)}
+
+
+# ============================================================
+# ИСПОЛНЕНИЕ ПЛАНОВ: тонкие обёртки над фабрикой и Walt-исполнителем.
+# Живут здесь, чтобы движок оставался единственной точкой входа
+# для вызывающего кода (цикл, раннер, бот).
+# ============================================================
+
+def make_executor(dry_run=None, min_notional=None, key=None, secret=None):
+    """Создать исполнитель торговых планов. -> (executor, info).
+
+    Явные key/secret (per-user) имеют приоритет над окружением.
+    Проксирует в azazel_executor_factory.
+    """
+    try:
+        import azazel_executor_factory as F
+    except Exception as e:
+        return None, {"exchange": "walt", "dry_run": True,
+                      "error": "фабрика исполнителей недоступна: %s" % str(e)[:200],
+                      "reason": ""}
+    return F.make_executor(dry_run=dry_run, min_notional=min_notional,
+                           key=key, secret=secret)
+
+
+def _normalize_plan(plan):
+    """Привести план к единому виду: entry/stop_price/take_price.
+
+    Принимает и имена полей open_position (price/stop_loss/take_profit),
+    и имена исполнителя (entry/stop_price/take_price).
+    """
+    p = dict(plan or {})
+    if "entry" not in p and p.get("price") is not None:
+        p["entry"] = p["price"]
+    if "stop_price" not in p and p.get("stop_loss") is not None:
+        p["stop_price"] = p["stop_loss"]
+    if "take_price" not in p and p.get("take_profit") is not None:
+        p["take_price"] = p["take_profit"]
+    p.setdefault("side", "long")
+    return p
+
+
+def execute_plan(plan, executor=None, key=None, secret=None,
+                 dry_run=None, min_notional=None):
+    """Отправить план на исполнение. -> dict.
+
+    executor передан явно - фабрика не вызывается (важно для раннера:
+    он подставляет исполнителя пользователя, а не ключ из окружения).
+    Никогда не бросает исключение: ошибка возвращается в error.
+    """
+    info = {}
+    try:
+        if executor is None:
+            executor, info = make_executor(dry_run=dry_run,
+                                           min_notional=min_notional,
+                                           key=key, secret=secret)
+            if executor is None:
+                return {"ok": False, "error": (info or {}).get("error")
+                        or "исполнитель не создан",
+                        "executor_info": info or {}}
+        norm = _normalize_plan(plan)
+        res = executor.open_with_protection(norm)
+        ok = bool(res.get("ok")) if isinstance(res, dict) else bool(res)
+        return {"ok": ok, "result": res, "executor_info": info or {},
+                "plan": norm}
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:300],
+                "executor_info": info or {}}
