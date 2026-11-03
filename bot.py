@@ -372,7 +372,7 @@ def finish(chat_id, uid):
 
 HELP = ("<b>Azazel Trader</b> — автономный торговый терминал.\n\n"
     "Я соберу твои параметры, объясню каждый и сохраню. Дальше использую их в каждом цикле.\n\n"
-    "<b>Команды</b>\n/start — начать настройку\n/params — твои параметры\n/status — подписка и цикл\n"
+    "<b>Команды</b>\n/start — начать настройку\n/params — твои параметры\n/status — подписка и цикл\n/ключ — подключить ключ Walt API\n"
     "/app — открыть терминал\n/skills — доступные скилы\n/menu — профиль и быстрые ссылки\n/help — справка\n\n"
     "Вопросы — просто пиши текстом, я пойму.")
 
@@ -435,7 +435,7 @@ def cmd_status(chat_id, uid):
         + "\n" + ("Параметры заданы — цикл использует их."
                   if prog is not None and int(prog or 0) >= 100
                   else "Параметры ещё не заданы — /start."),
-        [("Перейти в Walt", WALT_URL, "url")])
+        [("Ключ Walt API", "walt_key"), ("Перейти в Walt", WALT_URL, "url")])
 
 
 def cmd_algo(chat_id, uid):
@@ -519,6 +519,8 @@ def _cb_inner(chat_id, uid, data):
         if s["step"] + 1 < len(STEPS): return ask(chat_id, uid, s["step"] + 1)
         return finish(chat_id, uid)
     if data == "view_params": return cmd_params(chat_id, uid)
+    if data == "walt_key":
+        return cmd_walt_key(chat_id, uid)
     if data == "wallet_new":
         s = SESS.setdefault(uid, {"tg_id": uid, "step": 0, "data": {}, "page": None, "name": ""})
         s["wallet_only"] = True
@@ -546,6 +548,11 @@ def _cb_inner(chat_id, uid, data):
 def text_handler(chat_id, uid, txt):
     s = SESS.get(uid)
     low = txt.strip().lower()
+    # Rezhim priema klyucha Walt: dva shaga - klyuch, potom sekret.
+    if s and s.get("walt_step") == "key":
+        return cmd_walt_key(chat_id, uid, key=txt)
+    if s and s.get("walt_step") == "secret":
+        return _walt_finish_key(chat_id, uid, txt)
     # Rezhim podklyucheniya koshelyka: rabotaet vsegda, dazhe bez sessii nastroyki.
     if s and s.get("wallet_only"):
         if low in ("пропустить", "skip"):
@@ -555,6 +562,8 @@ def text_handler(chat_id, uid, txt):
                 + "Пришли адрес кошелька целиком — например <code>UQAintXt7mpJqxnTXJF...</code>")
         return finish_wallet(chat_id, uid, txt.strip())
     if not s or s["step"] >= len(STEPS):
+        if low in ("ключ", "ключ api", "api ключ", "walt ключ", "/key", "walt_key"):
+            return cmd_walt_key(chat_id, uid)
         if low in ("параметры", "мои параметры", "/params"): return cmd_params(chat_id, uid)
         if low in ("статус", "/status"): return cmd_status(chat_id, uid)
         if low in ("статистика", "/report", "отчёт", "отчет"): return cmd_report(chat_id, uid)
@@ -695,6 +704,116 @@ def finish_wallet(chat_id, uid, addr):
     return send(chat_id,
         "<b>Кошелёк записан.</b>\n\n<code>" + addr + "</code>\n\n"
         + "Теперь подписка — после неё включается автономный цикл.",
+        [("$29/мес", "pay_usd"), ("9.5 TON/мес", "pay_ton")])
+
+
+# ── Ключи Walt (API key + secret) ──
+# Ключ и секрет создаются вручную в дашборде Walt (профиль Trader, 2FA,
+# привязка к Futures-стратегии). Формат ключа: wlt_bot_ + 64 hex,
+# секрет: 64 hex. Проверяем живость подписанным запросом account().
+WALT_DATA_DIR = os.environ.get("AZAZEL_DATA_DIR") or "/opt/azazel-data"
+_HEX = "0123456789abcdefABCDEF"
+
+def _walt_user_path(uid):
+    return os.path.join(WALT_DATA_DIR, str(uid) + ".json")
+
+def _walt_user_load(uid):
+    try:
+        with open(_walt_user_path(uid), encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def _walt_user_save(uid, data):
+    try:
+        os.makedirs(WALT_DATA_DIR, exist_ok=True)
+        p = _walt_user_path(uid)
+        tmp = p + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, p)
+        try:
+            os.chmod(p, 0o600)
+        except Exception:
+            pass
+        return True
+    except Exception as e:
+        log.exception("walt user json save failed uid=%s", uid)
+        return False
+
+def _walt_key_ok(k):
+    k = (k or "").strip()
+    return k.startswith("wlt_bot_") and len(k) == 72 and all(c in _HEX for c in k[8:])
+
+def _walt_secret_ok(s):
+    s = (s or "").strip()
+    return len(s) == 64 and all(c in _HEX for c in s)
+
+def _walt_check_live(key, secret):
+    """Proverit klyuch podpisannym zaprosom. -> (info|None, error|None)."""
+    try:
+        here = os.path.dirname(os.path.abspath(__file__))
+        if here not in sys.path:
+            sys.path.insert(0, here)
+        from walt_client import WaltClient
+    except Exception as e:
+        return None, "клиент Walt недоступен: %s" % e
+    try:
+        cl = WaltClient(key, secret, family="futures", sync_time=True)
+        return cl.check(), None
+    except Exception as e:
+        return None, str(e)
+
+def cmd_walt_key(chat_id, uid, key=None, secret=None):
+    """Prinimaet i sohranyaet klyuch Walt.bez parametrov - prosit klyuch."""
+    s = SESS.setdefault(uid, {"tg_id": uid, "step": 0, "data": {}, "page": None, "name": ""})
+    if key is None:
+        s["walt_step"] = "key"
+        return send(chat_id,
+            "<b>Ключ API Walt</b>\n\nПришли ключ — он выглядит так:\n"
+            + "<code>wlt_bot_...</code> (64 hex после префикса).\n\n"
+            + "Секрет попросю следующим сообщением — его показывают один раз, при создании ключа.")
+    key = (key or "").strip()
+    if not _walt_key_ok(key):
+        return send(chat_id, "Это не похоже на ключ Walt.\n\n"
+            + "Формат: <code>wlt_bot_</code> + 64 hex-символа. Скопируй целиком из дашборда.")
+    s["walt_step"] = "secret"
+    s["walt_key"] = key
+    return send(chat_id, "<b>Ключ принят.</b>\n\nТеперь пришли секрет — 64 hex-символа. "
+        + "Он показывается только один раз, при создании ключа.")
+
+def _walt_finish_key(chat_id, uid, secret):
+    s = SESS.get(uid) or {}
+    key = s.get("walt_key", "")
+    secret = (secret or "").strip()
+    if not _walt_secret_ok(secret):
+        return send(chat_id, "Секрет не похож на 64 hex-символа. Пришли его целиком.")
+    info, err = _walt_check_live(key, secret)
+    if err:
+        s["walt_step"] = "key"; s.pop("walt_key", None)
+        return send(chat_id, "<b>Ключ не прошёл проверку.</b>\n\n<code>" + err + "</code>\n\n"
+            + "Частая причина: ключ привязан к Spot-стратегии, а нужен Futures. "
+            + "Или перепутан секрет.")
+    data = _walt_user_load(uid)
+    data["walt_key"] = key
+    data["walt_secret"] = secret
+    if not _walt_user_save(uid, data):
+        return send(chat_id, "Не смог сохранить ключ на диск. Попробуй ещё раз.")
+    res = db_query_uid(USERS_DB, uid)
+    rows = (res or {}).get("records", [])
+    if rows:
+        page_update(USERS_DB, rows[0]["id"], {
+            "Walt API Key": key, "Walt API Secret": secret, "Walt ключ добавлен": True})
+    s.pop("walt_step", None); s.pop("walt_key", None)
+    bal = ((info or {}).get("balance") or {})
+    total = sum(v.get("free", 0) for v in bal.values())
+    log_event("walt ключ", uid, s.get("name", ""), details="ключ проверен, доступен")
+    notify_admin("Walt ключ добавлен: " + (s.get("name", "") or str(uid)))
+    return send(chat_id,
+        "<b>Ключ Walt подключён и проверен.</b>\n\n"
+        + "Баланс стратегии: " + ("$" + format(total, ".2f") if total else "0 (пусто)") + "\n"
+        + "Ключ сохранён — автономный цикл сможет видеть баланс и позиции.\n\n"
+        + "Дальше — подписка.",
         [("$29/мес", "pay_usd"), ("9.5 TON/мес", "pay_ton")])
 
 
