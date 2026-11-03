@@ -48,8 +48,8 @@ _orig_gai = socket.getaddrinfo
 
 
 def _pinned_gai(host, port, *a, **k):
-    if host == TG_HOST:
-        return _orig_gai(_tg["ip"], port, *a, **k)
+    # Обычный DNS работает стабильнее: жёсткое закрепление за IP Telegram
+    # давало SSL RECORD_LAYER_FAILURE и таймауты.
     return _orig_gai(host, port, *a, **k)
 
 
@@ -81,6 +81,21 @@ def _tg_call(method, path, payload=None, timeout=45):
                 return f.status, json.loads(raw)
             except Exception:
                 return f.status, raw
+        except urllib.error.HTTPError as e:
+            # 409 = predydushchiy long-poll eshche ne osvobodil ochered Telegram.
+            # Eto ne setevaya oshibka: rotatsiya IP zdesh ne pomogaet.
+            if e.code == 409:
+                try:
+                    body = json.loads(e.read().decode())
+                except Exception:
+                    body = {"description": "conflict"}
+                return 409, body
+            err = e
+            _tg["bad"] += 1
+            nxt = _tg_rotate()
+            log.warning("TG net %s (bad=%d), switch to %s: %s",
+                        method, _tg["bad"], nxt, e)
+            time.sleep(0.6)
         except Exception as e:
             if _STOP:
                 log.info("Ostanovka vo vremya zaprosa - prekryvaem")
@@ -191,8 +206,10 @@ def page_update(table, rec_id, fields):
     return at("PATCH", "/" + AT_BASE + "/" + table + "/" + rec_id, {"fields": fields})
 
 def tg(method, payload=None, retries=3):
+    if method == "getUpdates":
+        retries = max(retries, 12)
     path = "/bot" + TOKEN + "/" + method
-    to = 15 if method == "getUpdates" else 30
+    to = 40 if method == "getUpdates" else 30
     delay = 1.0
     for _ in range(retries):
         if _STOP:
@@ -208,8 +225,8 @@ def tg(method, payload=None, retries=3):
             except Exception: time.sleep(3)
             continue
         if s == 409:
-            log.warning("TG 409 conflict - drugoy client derzhit ochered, zhdu 15 s")
-            time.sleep(15); continue
+            log.warning("TG 409 - ochered zanyat predydushchim long-poll, zhdu 20 s")
+            time.sleep(20); continue
         return {"ok": False, "description": str(d)[:200]}
     return None
 
@@ -502,6 +519,12 @@ def _cb_inner(chat_id, uid, data):
         if s["step"] + 1 < len(STEPS): return ask(chat_id, uid, s["step"] + 1)
         return finish(chat_id, uid)
     if data == "view_params": return cmd_params(chat_id, uid)
+    if data == "wallet_new":
+        s = SESS.setdefault(uid, {"tg_id": uid, "step": 0, "data": {}, "page": None, "name": ""})
+        s["wallet_only"] = True
+        s["step"] = WALLET_IDX
+        s["data"] = {}
+        return ask(chat_id, uid, WALLET_IDX)
     if data == "check_pay": return cmd_status(chat_id, uid)
     if data == "restart":
         SESS[uid]["step"] = 0; SESS[uid]["data"] = {}
@@ -523,6 +546,14 @@ def _cb_inner(chat_id, uid, data):
 def text_handler(chat_id, uid, txt):
     s = SESS.get(uid)
     low = txt.strip().lower()
+    # Rezhim podklyucheniya koshelyka: rabotaet vsegda, dazhe bez sessii nastroyki.
+    if s and s.get("wallet_only"):
+        if low in ("пропустить", "skip"):
+            return send(chat_id, "Нужен адрес — без него терминал не увидит баланс и позиции.")
+        if not _ton_addr_ok(txt):
+            return send(chat_id, "Это не похоже на TON-адрес.\n\n"
+                + "Пришли адрес кошелька целиком — например <code>UQAintXt7mpJqxnTXJF...</code>")
+        return finish_wallet(chat_id, uid, txt.strip())
     if not s or s["step"] >= len(STEPS):
         if low in ("параметры", "мои параметры", "/params"): return cmd_params(chat_id, uid)
         if low in ("статус", "/status"): return cmd_status(chat_id, uid)
@@ -620,6 +651,53 @@ def handle_webapp_data(chat_id, uid, data_str):
     if cmd in ("menu", "home"):
         return send(chat_id, menu_text(uid, "", ""), menu_buttons())
     return send(chat_id, "Не понял команду: " + cmd)
+# ── Кошелёк Walt: отдельный вход до оплаты ──
+WALLET_IDX = next((i for i, s_ in enumerate(STEPS) if s_[0] == "wallet"), len(STEPS) - 1)
+
+def _ton_addr_ok(a):
+    """Prianyat' friendly (UQ../EQ..) i raw (0:.. / -1:..) adresa TON."""
+    a = (a or "").strip()
+    if not a: return False
+    if a.startswith("0:") or a.startswith("-1:"):
+        body = a.split(":", 1)[1]
+        return len(body) == 64 and all(ch in "0123456789abcdefABCDEF" for ch in body)
+    if a.startswith(("UQ", "EQ")):
+        return 46 <= len(a) <= 66 and all(ch.isalnum() or ch in "-_" for ch in a)
+    return False
+
+def cmd_wallet(chat_id, uid, name, username):
+    """Podklyuchenie koshelyka — otdelno ot nastroyki i ot oplaty."""
+    pid, _created = ensure_user(uid, name, username)
+    res = db_query_uid(USERS_DB, uid)
+    rows = (res or {}).get("records", [])
+    cur = ((rows[0].get("fields") or {}).get("Кошелёк Walt") or "") if rows else ""
+    if cur:
+        return send(chat_id,
+            "<b>Кошелёк уже подключён</b>\n\n<code>" + cur + "</code>\n\n"
+            + "Нужно поменять? Пришли новый адрес — заменю.",
+            [("Подключить другой", "wallet_new"), ("Оплатить подписку", "pay_usd")])
+    SESS[uid] = {"tg_id": uid, "step": WALLET_IDX, "data": {}, "page": pid,
+                 "name": name, "wallet_only": True}
+    return ask(chat_id, uid, WALLET_IDX)
+
+def finish_wallet(chat_id, uid, addr):
+    """Zapis koshelyka v Airtable i perekhod k oplate."""
+    s = SESS.get(uid) or {}
+    res = db_query_uid(USERS_DB, uid)
+    rows = (res or {}).get("records", [])
+    rec = rows[0]["id"] if rows else s.get("page")
+    if rec:
+        page_update(USERS_DB, rec, {"Кошелёк Walt": addr})
+    log_event("кошелёк", uid, s.get("name", ""), details=addr)
+    notify_admin("Кошелёк подключён: " + (s.get("name", "") or str(uid)) + " -> " + addr)
+    s.pop("wallet_only", None)
+    s["data"]["wallet"] = addr
+    return send(chat_id,
+        "<b>Кошелёк записан.</b>\n\n<code>" + addr + "</code>\n\n"
+        + "Теперь подписка — после неё включается автономный цикл.",
+        [("$29/мес", "pay_usd"), ("9.5 TON/мес", "pay_ton")])
+
+
 def handle_start_payload(chat_id, uid, name, username, payload):
     """Razbor /start <payload> iz deep-link Mini App."""
     p = (payload or "").strip().lower().lstrip("/")
@@ -635,6 +713,10 @@ def handle_start_payload(chat_id, uid, name, username, payload):
     if p == "menu":
         send_terminal_kb(chat_id)
         return send(chat_id, menu_text(uid, name, username), menu_buttons())
+    if p == "setup":
+        return start(chat_id, uid, name, username)
+    if p == "wallet":
+        return cmd_wallet(chat_id, uid, name, username)
     send_terminal_kb(chat_id)
     return start(chat_id, uid, name, username)
 
@@ -667,7 +749,7 @@ def main():
         log.warning("Airtable nedostupen - zapisi ne sohranayutsya, prover AIRTABLE_TOKEN i bazu v .env")
     offset = 0
     while not _STOP:
-        res = tg("getUpdates", {"offset": offset, "timeout": 25,
+        res = tg("getUpdates", {"offset": offset, "timeout": 10,
                                  "allowed_updates": ["message", "callback_query", "web_app_data"]})
         if _STOP:
             break
