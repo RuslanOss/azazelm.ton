@@ -1,42 +1,42 @@
 #!/usr/bin/env bash
 # ============================================================
 # Azazel - DEPLOY. Vstaetsya v serialnuyu konsol Timeweb.
-# Rabotaet BEZ SSH. Kommit: 2cd4232e80af507477509eebcd767df7b9082d9d
+# Rabotaet BEZ SSH. Fajly berutsya s fiksirovannogo kommitta, skript lezhit v main.
 # ============================================================
 set -uo pipefail
 
-SHA="2cd4232e80af507477509eebcd767df7b9082d9d"
-BASE="https://raw.githubusercontent.com/RuslanOss/azazelm.ton/${SHA}"
+SHA="main"
+BASE="https://raw.githubusercontent.com/RuslanOss/azazelm.ton/main"
 DIR="/opt/azabot"
 BACKUP="${DIR}/backup_$(date +%Y%m%d_%H%M%S)"
 LIST="bot.py algo_config.py steps.py azazel_config.json azazel_config_loader.py continuation_engine.py continuation_engine_v2.py config.json autotrading_config.json azabot.service install.sh .env.example test_cont_v2.py test_cont_v3.py scalping_framework_v2.py scalping_strategies.py"
 
-echo "=== Azazel DEPLOY | ${SHA} ==="
+echo "=== Azazel DEPLOY | main (fajly iz main, khеshi zafiksirovany v etom skripte) ==="
 
-echo "[1/7] dostup k GitHub s servera"
+echo "[1/8] dostup k GitHub s servera"
 if ! curl -fsSL --max-time 25 "${BASE}/bot.py" -o /tmp/_probe.py; then
-  echo "ОШИБКА: server ne vidit raw.githubusercontent.com"
+  echo "OSHIBKA: server ne vidit raw.githubusercontent.com"
   curl -sI --max-time 15 https://github.com | head -1
   exit 1
 fi
 echo "    ok"
 
-echo "[2/7] bekap"
+echo "[2/8] bekap"
 mkdir -p "${BACKUP}"
 for f in ${LIST}; do
   [ -f "${DIR}/${f}" ] && cp -p "${DIR}/${f}" "${BACKUP}/" && echo "    bekap: ${f}"
 done
 echo "    bekap: ${BACKUP}"
 
-echo "[3/7] zagruzka po SHA"
+echo "[3/8] zagruzka po SHA"
 for f in ${LIST}; do
-  curl -fsSL --max-time 30 "${BASE}/${f}" -o "${DIR}/${f}" || { echo "ОШИБКА: ne skachalsya ${f}"; exit 1; }
-  echo "    ${f} (${DIR}/${f} $(stat -c%s "${DIR}/${f}") Б)"
+  curl -fsSL --max-time 30 "${BASE}/${f}" -o "${DIR}/${f}" || { echo "OSHIBKA: ne skachalsya ${f}"; exit 1; }
+  echo "    ${f} (${DIR}/${f} $(stat -c%s "${DIR}/${f}") B)"
 done
 
-echo "[4/7] proverka sha256"
+echo "[4/8] proverka sha256"
 declare -A WANT=(
-  ["bot.py"]="6767428f781c07c6e539559af0ad92e465b3fea71a70a637335d10fd30608620"
+  ["bot.py"]="778150bb26683674497e58250c7b39966bcf9e59b665f229f467237f950f9709"
   ["algo_config.py"]="f8633b28a97183fcceac73aefb8fa95f24f0f034b45854ebda0e3463a7ce9b79"
   ["steps.py"]="27ebc820e407b6352917e9ec8861658369e1a72fe2200923089a17956ff1d446"
   ["azazel_config.json"]="e75836e86d6f1755c3c0b6506f58f1feb1373a2a0874051b336ac32835dc3e42"
@@ -57,32 +57,43 @@ FAIL=0
 for f in "${!WANT[@]}"; do
   GOT=$(sha256sum "${DIR}/${f}" | cut -d" " -f1)
   if [ "${GOT}" != "${WANT[$f]}" ]; then
-    echo "    ОШИБКА sha256: ${f}"; FAIL=1
+    echo "    OSHIBKA sha256: ${f}"; FAIL=1
   else
     echo "    ok: ${f}"
   fi
 done
-[ $FAIL -ne 0 ] && { echo "ОШИБКА: checksumy ne sovpali - DEPLOY PRERVAN"; exit 1; }
+[ $FAIL -ne 0 ] && { echo "OSHIBKA: checksumy ne sovpali - DEPLOY PRERVAN"; exit 1; }
 
-echo "[5/7] sintaksis i testy"
+echo "[5/8] sintaksis i testy"
 cd "${DIR}"
 python3 -c "import ast; ast.parse(open('bot.py',encoding='utf-8').read()); ast.parse(open('continuation_engine.py',encoding='utf-8').read())" \
-  && echo "    sintaksis: OK" || { echo "ОШИБКА: sintaksis sloman"; exit 1; }
-bash -n "${DIR}/install.sh" && echo "    install.sh: OK" || { echo "ОШИБКА: install.sh sloman"; exit 1; }
+  && echo "    sintaksis: OK" || { echo "OSHIBKA: sintaksis sloman"; exit 1; }
+bash -n "${DIR}/install.sh" && echo "    install.sh: OK" || { echo "OSHIBKA: install.sh sloman"; exit 1; }
 python3 "${DIR}/test_cont_v3.py" > /tmp/_t3.log 2>&1
 RC3=$?; echo "    test_cont_v3 rc=${RC3}"; tail -2 /tmp/_t3.log | sed "s/^/      /"
-[ ${RC3} -ne 0 ] && { echo "ОШИБКА: testy v3 ne proshli"; exit 1; }
+[ ${RC3} -ne 0 ] && { echo "OSHIBKA: testy v3 ne proshli"; exit 1; }
 python3 "${DIR}/test_cont_v2.py" > /tmp/_t2.log 2>&1
 RC2=$?; echo "    test_cont_v2 rc=${RC2}"; tail -2 /tmp/_t2.log | sed "s/^/      /"
 
-echo "[6/7] .env"
+echo "[6/8] .env"
 if [ -f "${DIR}/.env" ]; then
   echo "    .env uzhe est - ne trogayu"
 else
   cp "${DIR}/.env.example" "${DIR}/.env" && chmod 600 "${DIR}/.env" && echo "    sozdan .env iz .env.example (tokeny pustye - zapolni!)"
 fi
 
-echo "[7/7] gotovo"
+echo "[7/8] servis"
+cp -f "${DIR}/azabot.service" /etc/systemd/system/azabot.service 2>/dev/null && echo "    unit: ok" || echo "    VNIHMANIE: net prav na /etc/systemd/system"
+systemctl daemon-reload && echo "    daemon-reload: ok"
+systemctl enable azabot.service >/dev/null 2>&1 && echo "    enable: ok"
+systemctl restart azabot.service
+sleep 7
+systemctl is-active azabot.service | sed "s/^/    status: /"
+
+echo "[8/8] proverka"
+journalctl -u azabot.service -n 15 --no-pager 2>/dev/null | sed "s/^/    /"
+[ -f /var/log/azabot.log ] && tail -15 /var/log/azabot.log | sed "s/^/    /"
+grep -q "AZABOT_TOKEN=." "${DIR}/.env" && echo "    AZABOT_TOKEN: zapolnen" || echo "    VNIHMANIE: AZABOT_TOKEN pust"
+grep -q "AIRTABLE_TOKEN=." "${DIR}/.env" && echo "    AIRTABLE_TOKEN: zapolnen" || echo "    VNIHMANIE: AIRTABLE_TOKEN pust"
+
 echo "=== DEPLOY OK ${SHA} ==="
-echo "TEPER: vypolni ustanovku:"
-echo "  curl -fsSL https://raw.githubusercontent.com/RuslanOss/azazelm.ton/${SHA}/install.sh -o /tmp/i.sh && bash /tmp/i.sh"
