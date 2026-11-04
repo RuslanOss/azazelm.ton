@@ -21,3 +21,4 @@ bin-release/
 .env
 *.env
 !/.env.example
+tonconnect_nonces.json

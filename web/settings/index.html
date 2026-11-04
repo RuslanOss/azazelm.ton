@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="ru"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<title>Azazel — Настройки</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#F4F5F7;color:#14181F;min-height:100vh;padding:16px;padding-bottom:40px;-webkit-font-smoothing:antialiased}
+.card{background:#FFFFFF;border:1px solid #E3E6EA;border-radius:14px;padding:20px;max-width:520px;margin:0 auto;box-shadow:0 1px 2px rgba(16,24,40,.04)}
+h1{font-size:21px;color:#0B0E11;margin-bottom:4px;letter-spacing:-.3px;font-weight:700}
+.subtitle{font-size:13px;color:#6B7480;margin-bottom:18px}
+.sec{font-size:11px;color:#7A828D;text-transform:uppercase;letter-spacing:.08em;margin:24px 0 10px;font-weight:700}
+.step{margin-bottom:14px}.q{font-size:14px;color:#0B0E11;font-weight:600;margin-bottom:3px}
+.why{font-size:11.5px;color:#6B7480;line-height:1.5;margin-bottom:8px}
+.opts{display:flex;flex-wrap:wrap;gap:6px}
+.opt{padding:8px 12px;background:#FAFBFC;border:1px solid #E3E6EA;border-radius:8px;color:#2A3038;font-size:13px;cursor:pointer;transition:.15s}
+.opt.on{background:#0B0E11;border-color:#0B0E11;color:#fff;font-weight:600}
+.opt:hover:not(.on){background:#F0F2F5;border-color:#D7DBE0}
+input[type=text],input[type=password]{width:100%;padding:11px 12px;background:#FAFBFC;border:1px solid #D7DBE0;border-radius:9px;color:#0B0E11;font-size:14px;margin-bottom:8px;font-family:inherit}
+input:focus{outline:none;border-color:#0B0E11;background:#fff;box-shadow:0 0 0 3px rgba(11,14,17,.06)}
+.btn{display:block;width:100%;padding:13px;border:none;border-radius:9px;font-size:15px;font-weight:600;cursor:pointer;margin-top:10px;font-family:inherit;transition:.15s}
+.btn:active{transform:scale(.99)}
+.btn-p{background:#0B0E11;color:#fff}.btn-p:hover{background:#23282F}
+.btn-y{background:#C77700;color:#fff}
+.btn-y:hover{background:#A86600}
+.btn-s{background:#FFFFFF;border:1px solid #D7DBE0;color:#2A3038}
+.btn-s:hover{background:#FAFBFC}
+.note{font-size:11.5px;color:#7A828D;line-height:1.55;margin-top:14px}
+.err{color:#B32D3E;font-size:13px;margin-top:10px;display:none}
+.ok-box{background:rgba(14,159,110,.08);border:1px solid #9FD9C4;border-radius:10px;padding:12px;font-size:13px;color:#0B8158;display:none;margin-top:12px}</style></head>
+<body><div class="card">
+<h1>⚙️ Настройки торговли</h1>
+<div class="subtitle">Параметры применяются в каждой торговой сессии</div>
+<div id="list"></div>
+<div class="sec">Кошелёк Walt</div>
+<div class="step">
+<div class="q">API-ключ и секрет Walt</div>
+<div class="why">Нужны, чтобы бот видел твой агентский субсчёт: баланс, движение средств и PnL. Создай ключ в Walt: профиль → API-ключи. Бот читает только твой счёт и не может вывести средства.</div>
+<input type="text" id="wkey" placeholder="API Key" autocomplete="off">
+<input type="password" id="wsec" placeholder="API Secret" autocomplete="off">
+<button class="btn btn-s" id="wbtn" type="button">Сохранить ключи</button>
+</div>
+<button class="btn btn-p" id="save" type="button">Сохранить и запустить</button>
+<button class="btn btn-y" id="back" type="button" style="display:none">Вернуться в бота</button>
+<div class="ok-box" id="ok"></div>
+<div class="err" id="err"></div>
+<div class="note">Данные уходят боту по подписанному Telegram-каналу. Ключи хранятся на сервере и не попадают в URL.</div>
+</div>
+<script>
+var STEPS=[["tier", "Какой у тебя депозит?", "От этого зависит режим: на микро я сделки не открываю — там комиссии съедают весь профит.", [["Микро — до $50", "микро"], ["Средний — $50–$500", "средний"], ["Крупный — $500+", "крупный"]], "средний"], ["mode", "Какой режим торговли?", "Scalp_only — только быстрые входы внутри дня. Scalp_daily — плюс swing. Full_spectrum — всё сразу.", [["Только скальп", "scalp_only"], ["Скальп + свинг", "scalp_daily"], ["Всё сразу", "full_spectrum"]], "scalp_daily"], ["lev_alts", "Плечо для альтов?", "Больше 5x на альтах — ловушка: стоп в 3% при 10x выбивает шумом за секунды.", [["3x", "3"], ["5x", "5"]], "5"], ["lev_btc", "Плечо для BTC и ETH?", "До 10x, но только когда фандинг низкий. При высоком фандинге лонг дорогой.", [["5x", "5"], ["8x", "8"], ["10x", "10"]], "10"], ["stop_alts", "Стоп на альтах, в %?", "Минимум 3% или 1×ATR — что больше. ATR считается по рынку на лету, подставится сам.", [["3%", "3"], ["4%", "4"], ["5%", "5"]], "3"], ["stop_btc", "Стоп на BTC/ETH, в %?", "Там волатильность ниже, 1.5% — адекватный уровень.", [["1.5%", "1.5"], ["2%", "2"], ["3%", "3"]], "1.5"], ["atr", "Множитель ATR для стопов?", "Если ATR крупный, стоп расширяется автоматически. 1.0 — базово, 1.5 — консервативно.", [["1.0", "1.0"], ["1.5", "1.5"]], "1.0"], ["rr", "Минимальное R:R?", "Прибыль к риску. 1:2 значит: рискуешь $1, чтобы взять $2. Ниже 1:2 сделки не берём.", [["1:2", "2"], ["1:3", "3"], ["1:4", "4"]], "2"], ["btc_filter", "BTC-фильтр: насколько близко к сопротивлению BTC запрещать шорт альтов?", "Если BTC упирается в сопротивление, шорт альтов почти гарантированно ловит отскок.", [["2%", "2"], ["3%", "3"]], "2"], ["funding", "Порог фандинга для блока лонга, %/час?", "Дорогой фандинг — лонг платит за каждый час удержания. Выше порога лонг не берём.", [["0.03%", "0.03"], ["0.05%", "0.05"]], "0.05"], ["loss_limit", "Дневной лимит убытка, $?", "Достиг — стоп на день. Это защита от серии убытков, а не от одной сделки.", [["$10", "10"], ["$15", "15"], ["$30", "30"]], "15"], ["max_stops", "Сколько стопов допускаем за день?", "Третий стоп — тоже стоп на день. Много стопов подряд значит, что рынок сейчас не твой.", [["2", "2"], ["3", "3"]], "3"], ["corr_cap", "Сколько позиций с одинаковой BTC-корреляцией держать?", "Три шорта альтов — это фактически один шорт BTC с тремя стопами. Диверсификации ноль.", [["1", "1"], ["2", "2"]], "2"], ["max_trades", "Максимум сделок в день?", "Больше 5 — это уже не трейдинг, а прокручивание ленты.", [["3", "3"], ["5", "5"]], "5"], ["timeframes", "Таймфреймы?", "15m — входы, 1h — структура, 4h — старший контекст.", [["15m / 1h / 4h", "15m,1h,4h"], ["15m / 1h", "15m,1h"], ["1h / 4h", "1h,4h"]], "15m,1h,4h"], ["autoconfirm", "Автоподтверждение сделок?", "Включено — терминал открывает позицию сам по правилам. Выключено — каждая сделка ждёт твоего тапа.", [["Да, автоматически", "True"], ["Нет, подтверждаю каждую", "False"]], "True"]];
+var vals={};
+STEPS.forEach(function(s){vals[s[0]]=s[4];});
+var tg=window.Telegram&&window.Telegram.WebApp;
+try{tg.ready();}catch(e){} try{tg.expand();}catch(e){} try{tg.setHeaderColor('#F4F5F7');}catch(e){}
+try{tg.BackButton.onClick(function(){go();});}catch(e){}
+function el(t,c,h){var e=document.createElement(t);if(c)e.className=c;if(h!=null)e.innerHTML=h;return e;}
+function build(){
+  var L=document.getElementById('list');L.innerHTML='';
+  STEPS.forEach(function(s){
+    var d=el('div','step');
+    d.appendChild(el('div','q',s[1]));
+    d.appendChild(el('div','why',s[2]));
+    var o=el('div','opts');
+    s[3].forEach(function(op){
+      var b=el('div','opt'+(vals[s[0]]===op[1]?' on':''),op[0]);
+      b.onclick=function(){vals[s[0]]=op[1];Array.prototype.forEach.call(o.children,function(x){x.classList.remove('on');});b.classList.add('on');};
+      o.appendChild(b);
+    });
+    d.appendChild(o);L.appendChild(d);
+  });
+}
+function showErr(t){var e=document.getElementById('err');e.textContent=t;e.style.display='block';}
+function go(){try{if(tg&&tg.close)tg.close();else location.href='https://t.me/AzabotAi?start=menu';}catch(e){location.href='https://t.me/AzabotAi?start=menu';}}
+function send(payload){
+  var ok=false;
+  // init_data - edinstvennyi podpisannyi Telegramom istochnik prav.
+  // initDataUnsafe poddelat' mozhno, ego ne peredavaem.
+  // Bez init_data backend otkazhet chuvstvitel'nye komandy (walt_key, settings_save).
+  var id=(tg&&tg.initData)?tg.initData:'';
+  if(!id){
+    showErr('Mini App запущен вне Telegram — данные не передать. Открой бота и напиши /settings');
+    try{if(tg&&tg.openTelegramLink)tg.openTelegramLink('https://t.me/AzabotAi?start=settings');}catch(e){}
+    return;
+  }
+  payload.init_data=id;
+  try{if(tg&&tg.sendData){tg.sendData(JSON.stringify(payload));ok=true;}}catch(e){ok=false;}
+  if(ok){
+    document.getElementById('ok').style.display='block';
+    document.getElementById('ok').innerHTML='Настройки отправлены боту. Возвращаемся в чат…';
+    document.getElementById('save').style.display='none';
+    document.getElementById('back').style.display='block';
+    setTimeout(go,900);
+  } else {
+    showErr('Не удалось передать данные. Открой бота и напиши /settings');
+    try{if(tg&&tg.openTelegramLink)tg.openTelegramLink('https://t.me/AzabotAi?start=settings');}catch(e){}
+  }
+}
+document.getElementById('save').onclick=function(){
+  var pk=document.getElementById('wkey').value.trim();
+  var ps=document.getElementById('wsec').value.trim();
+  var pl={cmd:'settings_save',params:vals};
+  if(pk){pl.walt_key=pk;pl.walt_secret=ps;}
+  send(pl);
+};
+document.getElementById('back').onclick=go;
+document.getElementById('wbtn').onclick=function(){
+  var pk=document.getElementById('wkey').value.trim();
+  if(!pk){showErr('Введи API-ключ');return;}
+  send({cmd:'walt_key',key:pk,secret:document.getElementById('wsec').value.trim()});
+};
+build();
+try{if(tg&&tg.BackButton)tg.BackButton.show();}catch(e){}
+</script></body></html>

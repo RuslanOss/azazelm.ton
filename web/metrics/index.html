@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="ru"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<title>Azazel — Метрики</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#F4F5F7;color:#14181F;min-height:100vh;padding:16px;padding-bottom:40px;-webkit-font-smoothing:antialiased}
+.card{background:#FFFFFF;border:1px solid #E3E6EA;border-radius:14px;padding:20px;max-width:520px;margin:0 auto;box-shadow:0 1px 2px rgba(16,24,40,.04)}
+h1{font-size:21px;color:#0B0E11;margin-bottom:4px;letter-spacing:-.3px;font-weight:700}
+.subtitle{font-size:13px;color:#6B7480;margin-bottom:18px}
+.kpi{background:#FAFBFC;border:1px solid #E8EBEF;border-radius:11px;padding:14px;margin-bottom:10px}
+.kpi .lb{font-size:11px;color:#7A828D;text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px;font-weight:600}
+.kpi .vl{font-size:26px;color:#0B0E11;font-weight:700;letter-spacing:-.02em;font-variant-numeric:tabular-nums;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.kpi .dl{font-size:12px;margin-top:4px}
+.up{color:#0E9F6E}.down{color:#D93A4E}.flat{color:#7A828D}
+.sec{font-size:11px;color:#7A828D;text-transform:uppercase;letter-spacing:.08em;margin:24px 0 10px;font-weight:700}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;color:#7A828D;font-weight:600;font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;padding:7px 4px;border-bottom:1px solid #E3E6EA}
+td{padding:10px 4px;border-bottom:1px solid #EFF1F4;color:#2A3038}
+td.n{text-align:right;font-variant-numeric:tabular-nums;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.pill{display:inline-block;padding:2px 7px;border-radius:6px;font-size:10.5px;font-weight:700;letter-spacing:.03em}
+.p-long{background:rgba(14,159,110,.10);color:#0B8158}
+.p-short{background:rgba(217,58,78,.10);color:#B32D3E}
+.empty{color:#8A919B;font-size:13px;padding:16px 0;text-align:center;line-height:1.5}
+.btn{display:block;width:100%;padding:13px;border:none;border-radius:9px;font-size:15px;font-weight:600;cursor:pointer;margin-top:10px;font-family:inherit;transition:.15s}
+.btn:active{transform:scale(.99)}
+.btn-p{background:#0B0E11;color:#fff}
+.btn-p:hover{background:#23282F}
+.btn-s{background:#FFFFFF;border:1px solid #D7DBE0;color:#2A3038}
+.btn-s:hover{background:#FAFBFC}
+.note{font-size:11.5px;color:#7A828D;line-height:1.55;margin-top:14px}
+.ts{font-size:11px;color:#98A0AA;margin-top:10px;font-variant-numeric:tabular-nums}
+.bar{height:5px;background:#EDEFF2;border-radius:3px;overflow:hidden;margin-top:9px}
+.bar div{height:100%;background:#0E9F6E;transition:width .4s ease}
+.hint{background:#FFFBEB;border:1px solid #F5E3B3;border-radius:10px;padding:13px;font-size:12.5px;color:#7A5B00;line-height:1.55;margin-bottom:12px}
+.hint b{color:#5E4600}</style></head>
+<body><div class="card">
+<h1>📊 Метрики счёта</h1>
+<div class="subtitle" id="who">Загрузка…</div>
+<div class="hint" id="hint" style="display:none">
+<b>Счёт ещё не подключён.</b> Агентский субсчёт запрашивается у Walt по API-ключу — он хранится в настройках бота. Пока ключ не задан, здесь честное «нет данных», а не выдуманные цифры.
+</div>
+<div class="kpi"><div class="lb">Остаток депозита</div><div class="vl" id="kBal">—</div><div class="dl flat" id="kBalSub">свободная маржа</div></div>
+<div class="kpi"><div class="lb">Движение средств за 24ч</div><div class="vl" id="kFlow">—</div><div class="dl flat" id="kFlowSub">пополнения − выводы</div></div>
+<div class="kpi"><div class="lb">Онлайн PnL</div><div class="vl" id="kPnl">—</div><div class="dl flat" id="kPnlSub">по открытым позициям</div></div>
+<div class="kpi"><div class="lb">PnL за 24 часа</div><div class="vl" id="kPnl24">—</div><div class="dl flat" id="kPnl24Sub">закрытые сделки</div></div>
+<div class="kpi"><div class="lb">Позиции</div><div class="vl" id="kPos">—</div><div class="bar"><div id="kPosBar" style="width:0%"></div></div></div>
+<div class="sec">Открытые позиции</div>
+<div id="posBox"><div class="empty">Загрузка…</div></div>
+<div class="sec">Последние сделки</div>
+<div id="trdBox"><div class="empty">Загрузка…</div></div>
+<div class="ts" id="ts"></div>
+<button class="btn btn-p" id="reload" type="button">Обновить</button>
+<a class="btn btn-s" id="walt" href="https://t.me/wallet/start?startapp=" data-walt>Кошелёк Walt</a>
+<button class="btn btn-s" id="back" type="button">Вернуться в бота</button>
+<div class="note">Данные — по твоему агентскому субсчёту Walt. Бот видит только свой субсчёт и не может вывести средства.</div>
+</div>
+<script>
+var tg=window.Telegram&&window.Telegram.WebApp;
+try{tg.ready();}catch(e){} try{tg.expand();}catch(e){} try{tg.setHeaderColor('#F4F5F7');}catch(e){}
+var ENDPOINT='https://azazelm.com'; // собственный домен: /api/metrics на сервере
+var UID=0;
+try{UID=(tg&&tg.initDataUnsafe&&tg.initDataUnsafe.user)?tg.initDataUnsafe.user.id:0;}catch(e){}
+function fmt(n){if(n===null||n===undefined||n==='')return '—';if(typeof n!=='number')return String(n);return n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});}
+function cls(v){return v>0?'up':(v<0?'down':'flat');}
+function sgn(v){return (v>0?'+':'')+fmt(v);}
+function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&','<':'<','>':'>','"':'"'}[c];});}
+function render(d){
+  if(!d){document.getElementById('who').textContent='Данные пока недоступны';return;}
+  document.getElementById('who').textContent=(d.account_name||'Счёт');
+  var b=d.balance||{};document.getElementById('kBal').textContent='$'+fmt(b.total);
+  document.getElementById('kBalSub').textContent='свободно $'+fmt(b.free)+' · в позициях $'+fmt(b.used);
+  var f=d.flow24||{};document.getElementById('kFlow').textContent=sgn(f.net);
+  document.getElementById('kFlow').className='vl '+cls(f.net);
+  document.getElementById('kFlowSub').textContent='внесено $'+fmt(f.deposit)+' · выведено $'+fmt(f.withdraw);
+  var p=d.pnl||{};document.getElementById('kPnl').textContent=sgn(p.open);
+  document.getElementById('kPnl').className='vl '+cls(p.open);
+  document.getElementById('kPnl24').textContent=sgn(p.day24);
+  document.getElementById('kPnl24').className='vl '+cls(p.day24);
+  var pos=d.positions||[];
+  document.getElementById('kPos').textContent=pos.length?pos.length+' / 5':'0';
+  var used=(b.total?((b.used||0)/b.total*100):0);
+  document.getElementById('kPosBar').style.width=Math.min(100,used)+'%';
+  var pb=document.getElementById('posBox');
+  if(!pos.length){pb.innerHTML='<div class="empty">Открытых позиций нет</div>';}
+  else{var h='<table><tr><th>Актив</th><th>Сторона</th><th>Вход</th><th>Цена</th><th class="n">PnL</th></tr>';
+    pos.forEach(function(x){h+='<tr><td><b>'+esc(x.symbol)+'</b></td><td><span class="pill '+(x.side==='long'?'p-long':'p-short')+'">'+(x.side==='long'?'LONG':'SHORT')+'</span></td><td>'+fmt(x.entry)+'</td><td>'+fmt(x.price)+'</td><td class="n '+cls(x.pnl)+'">'+sgn(x.pnl)+'</td></tr>';});
+    pb.innerHTML=h+'</table>';}
+  var tr=d.trades||[];var tb=document.getElementById('trdBox');
+  if(!tr.length){tb.innerHTML='<div class="empty">Сделок за 24 часа нет</div>';}
+  else{var h2='<table><tr><th>Актив</th><th>Сторона</th><th>Вход</th><th>Выход</th><th class="n">PnL</th></tr>';
+    tr.forEach(function(x){h2+='<tr><td><b>'+esc(x.symbol)+'</b></td><td><span class="pill '+(x.side==='long'?'p-long':'p-short')+'">'+(x.side==='long'?'LONG':'SHORT')+'</span></td><td>'+fmt(x.entry)+'</td><td>'+fmt(x.exit)+'</td><td class="n '+cls(x.pnl)+'">'+sgn(x.pnl)+'</td></tr>';});
+    tb.innerHTML=h2+'</table>';}
+  document.getElementById('ts').textContent='Обновлено: '+(d.updated||'—');
+}
+function offline(){
+  // Server API ne razvyortan - pokazyvaem chestnoe sostoyanie, a ne oshibku.
+  document.getElementById('who').textContent='Агентский субсчёт';
+  var h=document.getElementById('hint');
+  if(h){h.style.display='block';}
+  document.getElementById('kBal').textContent='—';
+  document.getElementById('kBalSub').textContent='свободная маржа недоступна';
+  document.getElementById('kFlow').textContent='—';
+  document.getElementById('kFlowSub').textContent='нет данных';
+  document.getElementById('kPnl').textContent='—';
+  document.getElementById('kPnlSub').textContent='нет данных';
+  document.getElementById('kPnl24').textContent='—';
+  document.getElementById('kPnl24Sub').textContent='нет данных';
+  document.getElementById('kPos').textContent='—';
+  document.getElementById('kPosBar').style.width='0%';
+  document.getElementById('posBox').innerHTML='<div class="empty">Данных пока нет</div>';
+  document.getElementById('trdBox').innerHTML='<div class="empty">Данных пока нет</div>';
+  document.getElementById('ts').textContent='Серверный API не развёрнут';
+}
+function load(){
+  if(!ENDPOINT){offline();return;}
+  fetch(ENDPOINT+'/api/metrics?init_data='+encodeURIComponent(tg.initData||''),{cache:'no-store'})
+   .then(function(r){return r.json();})
+   .then(render)
+   .catch(function(){
+     document.getElementById('who').textContent='Агентский субсчёт';
+     var h=document.getElementById('hint'); if(h){h.style.display='block';}
+     document.getElementById('posBox').innerHTML='<div class="empty">Не удалось связаться с сервером</div>';
+     document.getElementById('trdBox').innerHTML='<div class="empty">Не удалось связаться с сервером</div>';
+   });
+}
+document.getElementById('reload').onclick=load;
+var wl=document.getElementById('walt');
+if(wl){wl.addEventListener('click',function(e){
+  e.preventDefault();
+  var u=wl.getAttribute('href')||'https://t.me/wallet/start?startapp=';
+  try{ if(tg&&tg.openTelegramLink){tg.openTelegramLink(u);return;} }catch(err){}
+  try{ if(tg&&tg.openLink){tg.openLink(u);return;} }catch(err){}
+  window.location.href=u;
+});}
+document.getElementById('back').onclick=function(){try{if(tg&&tg.close)tg.close();else location.href='https://t.me/AzabotAi?start=menu';}catch(e){location.href='https://t.me/AzabotAi?start=menu';}};
+load();
+</script></body></html>
