@@ -45,7 +45,6 @@ h1{font-size:21px;color:#0B0E11;margin-bottom:4px;letter-spacing:-.3px;font-weig
 .err{color:#B32D3E;font-size:13px;margin-top:10px;display:none}
 .ok-box{background:rgba(236,253,245,.76);border:1px solid #9FD9C4;border-radius:10px;padding:12px;font-size:13px;color:#0B8158;display:none;margin-top:12px}
 .hint{background:rgba(255,250,235,.76);border:1px solid rgba(253,230,138,.8);border-radius:10px;padding:12px;font-size:12.5px;color:#B54708;margin-bottom:14px;line-height:1.5}
-.ts{font-size:11px;color:#9AA1AE;text-align:center;margin-top:14px}
 .pill{display:inline-block;font-size:11px;padding:3px 9px;border-radius:99px;background:rgba(238,240,243,.72);color:#4B5563;font-weight:600;margin-left:6px}
 .pill.ok{background:rgba(14,159,110,.12);color:#0B8158}
 .pill.warn{background:rgba(255,244,229,.78);color:#B54708}
@@ -80,7 +79,6 @@ h1{font-size:21px;color:#0B0E11;margin-bottom:4px;letter-spacing:-.3px;font-weig
 
     <div class="err" id="err"></div>
     <div class="ok-box" id="ok"></div>
-    <div class="ts" id="ts"></div>
   </div>
 
   <div class="panel" id="p-status">
@@ -108,7 +106,6 @@ h1{font-size:21px;color:#0B0E11;margin-bottom:4px;letter-spacing:-.3px;font-weig
     <div class="note">Параметры применяются в каждой торговой сессии. Меняются в разделе настроек.</div>
   </div>
 
-  <div class="ts" id="ts2"></div>
 </div>
 
 <script>
@@ -177,11 +174,6 @@ document.getElementById('bParams').onclick=function(){
 (function init(){
   var s=document.getElementById('sub');
   s.textContent=NAME?('Привет, '+NAME+' · автономный агент'):'Автономный торговый агент';
-  var ts=document.getElementById('ts'),ts2=document.getElementById('ts2');
-  var d=new Date();
-  var stamp=d.toLocaleString('ru-RU',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
-  ts.textContent='v5 · '+stamp;
-  ts2.textContent='Azazel Trader · '+stamp;
   if(!tg||!tg.initData){
     document.getElementById('hint').style.display='block';
     s.textContent='Открыто вне Telegram';
