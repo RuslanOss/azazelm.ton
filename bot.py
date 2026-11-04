@@ -55,17 +55,22 @@ _CYCLE_STATE = {"last_run": 0.0, "last_rep": None, "runs": 0}
 
 TG_HOST = "api.telegram.org"
 # Pul IP DC Telegram: pervyye tri stabilno otvechayut, ostalnyye - rezerv.
-TG_IPS = ["149.154.167.220", "149.154.166.110", "149.154.161.145",
-           "149.154.167.222", "149.154.175.100", "149.154.167.51"]
+# Provereno 03.11: 149.154.167.222 / 149.154.175.100 / 149.154.167.51
+# otdayut SSL RECORD_LAYER_FAILURE (0/3 uspesha) - iz pula udaleny.
+TG_IPS = ["149.154.167.220", "149.154.166.110", "149.154.161.145"]
 _tg = {"idx": 0, "ip": TG_IPS[0], "bad": 0}
 
 _orig_gai = socket.getaddrinfo
 
 
 def _pinned_gai(host, port, *a, **k):
-    # Обычный DNS работает стабильнее: жёсткое закрепление за IP Telegram
-    # давало SSL RECORD_LAYER_FAILURE и таймауты.
-    return _orig_gai(host, port, *a, **k)
+    # Realnoe zakreplenie za IP iz proverennogo pula + tolko IPv4.
+    # IPv6 na servere BEZ marshruta ("No route to host"), a getaddrinfo
+    # vozvrashchaet AAAA - urllib mog vybrat nedostupnyi adres.
+    if host != TG_HOST:
+        return _orig_gai(host, port, *a, **k)
+    return [(socket.AF_INET, socket.SOCK_STREAM, 6, "",
+             (_tg["ip"], port))]
 
 
 def _tg_rotate():
@@ -779,6 +784,10 @@ def handle_webapp_data(chat_id, uid, data_str):
         except Exception as e:
             log.exception("settings_save: %s", e)
             return send(chat_id, "Не смог сохранить настройки.")
+    if cmd == "algo":
+        return cmd_algo(chat_id, uid)
+    if cmd in ("help", "support"):
+        return send(chat_id, HELP)
     return send(chat_id, "Не понял команду: " + cmd)
 
 # ── Кошелёк Walt: отдельный вход до оплаты ──
