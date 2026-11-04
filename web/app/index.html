@@ -119,17 +119,19 @@ try{
   if(u){UID=u.id;NAME=u.first_name||u.username||'';}
 }catch(e){}
 
-var tabs=document.querySelectorAll('.tab');
-for(var i=0;i<tabs.length;i++){
-  tabs[i].onclick=function(){
-    for(var j=0;j<tabs.length;j++){tabs[j].classList.remove('on');}
-    this.classList.add('on');
-    var p=this.getAttribute('data-p');
-    var ps=document.querySelectorAll('.panel');
-    for(var k=0;k<ps.length;k++){ps[k].classList.remove('on');}
-    document.getElementById('p-'+p).classList.add('on');
-  };
-}
+// Delegated handler: works regardless of DOM order (tabbar markup lives after this script)
+document.addEventListener('click', function(ev){
+  var t = ev.target && ev.target.closest ? ev.target.closest('.tab') : null;
+  if(!t) return;
+  var ts = document.querySelectorAll('.tab');
+  for(var j=0;j<ts.length;j++){ ts[j].classList.remove('on'); }
+  t.classList.add('on');
+  var p = t.getAttribute('data-p');
+  var ps = document.querySelectorAll('.panel');
+  for(var k=0;k<ps.length;k++){ ps[k].classList.remove('on'); }
+  var target = document.getElementById('p-'+p);
+  if(target) target.classList.add('on');
+});
 
 function showErr(id,t){var e=document.getElementById(id);e.textContent=t;e.style.display='block';}
 function clearErr(id){var e=document.getElementById(id);if(e)e.style.display='none';}
