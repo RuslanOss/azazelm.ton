@@ -243,10 +243,12 @@ def verify_proof(proof, address_raw, expected_domain=None,
                 wc_s, hash_hex = a.split(":", 1)
             else:
                 wc_s, hash_hex = "0", a
-            if cell.hash().hex() != hash_hex.lower():
+            _h = cell.hash
+            _h = _h() if callable(_h) else _h
+            if _h.hex() != hash_hex.lower():
                 return False, "walletStateInit hash ne sovpal s adresom", None
-        except Exception:
-            pass
+        except Exception as e:
+            return False, "walletStateInit ne razobralsya: %s" % (str(e)[:60]), None
 
     # ed25519 verify
     try:

@@ -896,6 +896,20 @@ def cmd_ton_connect(chat_id, uid, payload):
           or proof.get("public_key") or proof.get("publicKey"))
     if pk:
         proof["public_key"] = pk
+    # walletStateInit: edinstvennoe dokazatelstvo, chto pubkey i adres iz
+    # odnogo koshelyka. Bez nego sviaz "kljuch -> adres" ne dokazuema:
+    # on-chain fallback ne rabotaet (toncenter v3 runGetMethod trebuet
+    # API-klyuch), a poyavljayushchiesya koshel'ki eshche ne razvyortany v seti.
+    wsi = (payload.get("wallet_state_init") or payload.get("walletStateInit")
+           or payload.get("state_init") or payload.get("stateInit") or "")
+    if wsi:
+        proof["walletStateInit"] = wsi
+    else:
+        log.warning("ton_connect without walletStateInit uid=%s addr=%s", uid, addr)
+        return send(chat_id,
+            "Ne prishol walletStateInit ot koshelyka. Bez nego nye zvani, "
+            "chto klyuch i adres iz odnogo koshelyka. Perepodklyuchi koshelek "
+            "i nazhmi \u00ab\u0421\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c \u043a\u043e\u0448\u0435\u043b\u0451\u043a\u00bb \u0441\u043d\u043e\u0432\u0430.")
     ok, reason, pub = tp.verify_proof(proof, _ton_addr_raw(addr),
                                       expected_domain=tp.DEFAULT_DOMAIN)
     if not ok:

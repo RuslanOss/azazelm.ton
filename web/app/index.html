@@ -277,6 +277,7 @@ document.getElementById('bTonSave').onclick=function(){
   send({ cmd:'ton_connect',
          address: tonState.address,
          public_key: tonState.publicKey,
+         wallet_state_init: tonState.walletStateInit,
          ton_proof: tonState.proof });
 };
 
