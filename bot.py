@@ -748,6 +748,10 @@ def handle_webapp_data(chat_id, uid, data_str):
         return cmd_status(chat_id, uid)
     if cmd == "report":
         return cmd_report(chat_id, uid)
+    if cmd == "cycle":
+        return cmd_cycle(chat_id, uid)
+    if cmd == "metrics":
+        return cmd_metrics_data(chat_id, uid)
     if cmd in ("menu", "home"):
         return send(chat_id, menu_text(uid, "", ""), menu_buttons())
     if cmd == "walt_key":
