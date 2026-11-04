@@ -74,6 +74,7 @@ h1{font-size:21px;color:#0B0E11;margin-bottom:4px;letter-spacing:-.3px;font-weig
     <div class="sec">Быстрые действия</div>
     <button class="btn btn-p" id="bStart" type="button">&#9654; Запустить торговый цикл</button>
     <button class="btn btn-s" id="bReport" type="button">&#128196; Отчёт за сегодня</button>
+    <button class="btn btn-s" id="bMetrics" type="button">&#128200; Метрики счёта</button>
     <button class="btn btn-s" id="bStatus" type="button">&#128202; Текущий статус</button>
     <button class="btn btn-s" id="bKey" type="button">&#128273; Ключ Walt</button>
 
@@ -89,8 +90,9 @@ h1{font-size:21px;color:#0B0E11;margin-bottom:4px;letter-spacing:-.3px;font-weig
     <div class="sec">Открытые позиции</div>
     <div id="posBox"><div class="empty">Данные придут в чат бота</div></div>
     <button class="btn btn-p" id="bStatus2" type="button">Обновить</button>
+    <button class="btn btn-s" id="bMetrics2" type="button">&#128200; Метрики счёта</button>
     <div class="err" id="err2"></div>
-    <div class="note">Бот пришлёт разбор в Telegram — детали по сделкам видны там.</div>
+    <div class="note">Бот пришлёт разбор в Telegram — детали по сделкам видны там. Метрики счёта (остаток, PnL, движение средств) приходят туда же.</div>
   </div>
 
   <div class="panel" id="p-params">
@@ -165,6 +167,8 @@ document.getElementById('bStart').onclick=function(){send({cmd:'cycle'});};
 document.getElementById('bReport').onclick=function(){send({cmd:'report'});};
 document.getElementById('bStatus').onclick=function(){send({cmd:'status'});};
 document.getElementById('bStatus2').onclick=function(){send({cmd:'status'});};
+document.getElementById('bMetrics').onclick=function(){send({cmd:'metrics'});};
+document.getElementById('bMetrics2').onclick=function(){send({cmd:'metrics'});};
 document.getElementById('bKey').onclick=function(){send({cmd:'walt_key'});};
 document.getElementById('bParams').onclick=function(){
   // Otvet bot prihodit v chat Telegram - Mini App zdesya ego ne poluchit.

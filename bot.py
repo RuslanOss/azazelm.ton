@@ -338,10 +338,22 @@ def ask(chat_id, uid, i):
     wrapped = [(label, "ans:%s=%s" % (key, val)) for label, val in btns]
     return send(chat_id, txt, wrapped)
 
+# "Тип" в таблице События — singleSelect с фиксированным списком.
+# Airtable не даёт создавать новые варианты (422), поэтому вид события
+# маппим на существующий, а конкретное действие пишем в "Событие" (свободный текст).
+EVENT_TYPE_MAP = {
+    "кошелёк": "активация",
+    "walt ключ": "активация",
+    "установка": "установка",
+    "параметры": "параметры",
+    "оплата": "оплата",
+}
+
+
 def log_event(kind, tg_id, name, source="bot", amount=None, tariff=None, details=""):
     fields = {
         "Событие": kind,
-        "Тип": kind,
+        "Тип": EVENT_TYPE_MAP.get(kind, "установка"),
         "Дата": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "Пользователь": name or "",
         "Telegram ID": tg_id,
@@ -900,7 +912,8 @@ def cmd_ton_connect(chat_id, uid, payload):
 
 def finish_wallet(chat_id, uid, addr):
     """Zapis koshelyka v Airtable i perekhod k oplate."""
-    s = SESS.get(uid) or {}
+    s = SESS.setdefault(uid, {"tg_id": uid, "step": 0, "data": {},
+                               "page": None, "name": ""})
     res = db_query_uid(USERS_DB, uid)
     rows = (res or {}).get("records", [])
     rec = rows[0]["id"] if rows else s.get("page")
@@ -909,7 +922,7 @@ def finish_wallet(chat_id, uid, addr):
     log_event("кошелёк", uid, s.get("name", ""), details=addr)
     notify_admin("Кошелёк подключён: " + (s.get("name", "") or str(uid)) + " -> " + addr)
     s.pop("wallet_only", None)
-    s["data"]["wallet"] = addr
+    s.setdefault("data", {})["wallet"] = addr
     return send(chat_id,
         "<b>Кошелёк записан.</b>\n\n<code>" + addr + "</code>\n\n"
         + "Теперь подписка — после неё включается автономный цикл.",
