@@ -141,5 +141,9 @@
     "B": "Swing Hunter — цена у уровня, RSI <35/>65, разворотная 15m, стоп за свечу+0.5%, трейлинг +1R→breakeven",
     "C": "CASCADE — серийный режим до 12 сделок, 5x/10x, стоп 10% ROI, тейк 1:2 ROI, 3 тактики слома тренда"
   },
-  "migrated_from": "page-kw2hhn/config.json (страница удалена 2026-11-02)"
+  "migrated_from": "page-kw2hhn/config.json (страница удалена 2026-11-02)",
+  "app_url": "https://azazel-trader-yz2uw75a.agent.mira.tg",
+  "settings_url": "https://azazel-settings-yz2uw75a.agent.mira.tg",
+  "metrics_url": "https://azazel-metrics-yz2uw75a.agent.mira.tg",
+  "wallet": "UQCi-czlbdSHaUsUIfmnGjuCQia_Iq4ehomwik1ajLNgVHhX"
 }

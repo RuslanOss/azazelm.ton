@@ -1,0 +1,15 @@
+import importlib.util,sys,inspect
+spec=importlib.util.spec_from_file_location("botx","/opt/azabot/bot.py")
+m=importlib.util.module_from_spec(spec); sys.modules["botx"]=m
+spec.loader.exec_module(m)
+print("IMPORT_OK")
+print("WALLET_IDX",m.WALLET_IDX)
+print("cmd_wallet",hasattr(m,"cmd_wallet"),"finish_wallet",hasattr(m,"finish_wallet"))
+src=inspect.getsource(m.handle_start_payload)
+print("setup:", "p == \"setup\"" in src, "wallet:", "p == \"wallet\"" in src)
+print("addr_ok good", m._ton_addr_ok("UQAintXt7mpJqxnTXJF_2qg4xm8S-hXDCxbW3fCo8Gu3vJc_"))
+print("addr_ok bad", m._ton_addr_ok("hello"))
+th=inspect.getsource(m.text_handler)
+print("wallet_only in text_handler:", "wallet_only" in th)
+ci=inspect.getsource(m._cb_inner)
+print("wallet_new in cb:", "wallet_new" in ci)

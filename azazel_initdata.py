@@ -22,6 +22,8 @@ DEFAULT_MAX_AGE = 3600
 SENSITIVE_COMMANDS = frozenset({
     "walt_key",
     "settings_save",
+    "ton_nonce",
+    "ton_connect",
 })
 
 

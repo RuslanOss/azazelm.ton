@@ -105,6 +105,16 @@ def _tg_call(method, path, payload=None, timeout=45):
                 except Exception:
                     body = {"description": "conflict"}
                 return 409, body
+            # 4xx (krome 409) = determinirovannyy otkaz Telegram: povtor i rotsiya
+            # IP nichego ne menyayut. Nadezhno vernut kod, a ne 30 sekund vremeni.
+            if 400 <= e.code < 500:
+                try:
+                    body = json.loads(e.read().decode())
+                except Exception:
+                    body = {"description": str(e)}
+                log.warning("TG %s -> %s (deterministic, no retry): %s",
+                            method, e.code, e)
+                return e.code, body
             err = e
             _tg["bad"] += 1
             nxt = _tg_rotate()
@@ -324,7 +334,8 @@ def ask(chat_id, uid, i):
     txt = "<b>"+q+"</b>\n\n<i>"+why+"</i>"
     if typ == "text":
         return send(chat_id, txt, [("Пропустить", "skip")])
-    return send(chat_id, txt, btns)
+    wrapped = [(label, "ans:%s=%s" % (key, val)) for label, val in btns]
+    return send(chat_id, txt, wrapped)
 
 def log_event(kind, tg_id, name, source="bot", amount=None, tariff=None, details=""):
     fields = {
@@ -474,8 +485,8 @@ def cmd_algo(chat_id, uid):
     btns = [("\u2699\ufe0f \u041d\u0430\u0441\u0442\u0440\u043e\u0438\u0442\u044c \u043f\u0430\u0440\u0430\u043c\u0435\u0442\u0440\u044b", "settings")]
     if APP_URL:
         btns.append(("\U0001f680 \u041e\u0442\u043a\u0440\u044b\u0442\u044c \u0442\u0435\u0440\u043c\u0438\u043d\u0430\u043b", APP_URL, "web_app"))
-    btns.append("\U0001f4ca \u0421\u0442\u0430\u0442\u0443\u0441")
-    btns.append("\U0001f4c6 \u041f\u0430\u0440\u0430\u043c\u0435\u0442\u0440\u044b")
+    btns.append(("\U0001f4ca \u0421\u0442\u0430\u0442\u0443\u0441", "check_pay"))
+    btns.append(("\U0001f4c6 \u041f\u0430\u0440\u0430\u043c\u0435\u0442\u0440\u044b", "view_params"))
     return send(chat_id, "<b>" + head + "</b>\n\n" + body, btns)
 
 def cmd_report(chat_id, uid):
@@ -739,6 +750,10 @@ def handle_webapp_data(chat_id, uid, data_str):
         return send(chat_id, menu_text(uid, "", ""), menu_buttons())
     if cmd == "walt_key":
         return cmd_walt_key(chat_id, uid)
+    if cmd == "ton_nonce":
+        return cmd_ton_nonce(chat_id, uid)
+    if cmd == "ton_connect":
+        return cmd_ton_connect(chat_id, uid, payload)
     if cmd == "settings_save":
         params = payload.get("params") or {}
         try:
@@ -776,6 +791,106 @@ def cmd_wallet(chat_id, uid, name, username):
     SESS[uid] = {"tg_id": uid, "step": WALLET_IDX, "data": {}, "page": pid,
                  "name": name, "wallet_only": True}
     return ask(chat_id, uid, WALLET_IDX)
+
+# ── TON Connect: nonce + проверка подписи кошелька ──
+def _tonproof():
+    """Zagruzaet modul azazel_tonproof. -> modul|None."""
+    try:
+        here = os.path.dirname(os.path.abspath(__file__))
+        if here not in sys.path:
+            sys.path.insert(0, here)
+        import azazel_tonproof as tp
+        return tp
+    except Exception as e:
+        log.exception("azazel_tonproof nedostupen: %s", e)
+        return None
+
+
+def _ton_addr_raw(addr):
+    """Privetitnyy adres TON (UQ../EQ..) -> raw '<wc>:<hex>' dlya proverki podpisi.
+
+    Format friendly-adresa: 48 simvolov base64url -> 36 bayt:
+    tag(1) + workchain(1) + hash(32) + crc16(2).
+    CRC16 schitaetsya po pervim 34 baytam (tag+workchain+hash).
+    Esli adres uzhe raw - vozvrashchaet kak est.
+    Esli razobrat ne udalos - vozvrashchaet ishodnyu stroku.
+    """
+    a = (addr or "").strip()
+    if not a:
+        return a
+    if ":" in a:
+        return a
+    try:
+        import base64
+        from ton_core.crypto import crc16
+        if len(a) != 48:
+            return a
+        raw = base64.urlsafe_b64decode(a + "=" * (-len(a) % 4))
+        if len(raw) != 36:
+            return a
+        if raw[0] not in (0x11, 0x01, 0x51):
+            return a
+        calc = crc16(raw[:34])
+        if isinstance(calc, bytes):
+            calc = int.from_bytes(calc, "big")
+        if calc != int.from_bytes(raw[34:36], "big"):
+            return a
+        wc = -1 if raw[1] == 0xFF else raw[1]
+        return "%d:%s" % (wc, raw[2:34].hex())
+    except Exception:
+        return a
+
+
+def cmd_ton_nonce(chat_id, uid):
+    """Vydet odnozagочный nonce dlya TON Connect."""
+    tp = _tonproof()
+    if tp is None:
+        return send(chat_id, "TON Connect vremenno nedostupen.")
+    try:
+        rec = tp.issue_nonce()
+    except Exception as e:
+        log.exception("issue_nonce: %s", e)
+        return send(chat_id, "Ne smog vydat nonce: " + str(e)[:120])
+    return send(chat_id, "<b>TON Connect nonce</b>\n\n<code>" + rec["nonce"] + "</code>\n\n"
+        + "Domen: <code>" + str(rec.get("domain", "")) + "</code>")
+
+
+def cmd_ton_connect(chat_id, uid, payload):
+    """Proveryaet ton_proof ot koshelyka i zapisyvaet koshelyok."""
+    tp = _tonproof()
+    if tp is None:
+        return send(chat_id, "TON Connect vremenno nedostupen.")
+    raw = payload.get("ton_proof") or payload.get("proof") or ""
+    if isinstance(raw, dict):
+        proof = raw
+    else:
+        try:
+            proof = json.loads(raw)
+        except Exception:
+            return send(chat_id, "Ne razobral ton_proof.")
+    if not isinstance(proof, dict):
+        return send(chat_id, "Ne razobral ton_proof.")
+    addr = (payload.get("address") or payload.get("wallet") or
+            proof.get("address") or "").strip()
+    if not _ton_addr_ok(addr):
+        return send(chat_id, "Nekorrektnyy adres koshelyka.")
+    pk = (payload.get("public_key") or payload.get("publicKey")
+          or proof.get("public_key") or proof.get("publicKey"))
+    if pk:
+        proof["public_key"] = pk
+    ok, reason, pub = tp.verify_proof(proof, _ton_addr_raw(addr),
+                                      expected_domain=tp.DEFAULT_DOMAIN)
+    if not ok:
+        log.warning("ton_proof rejected uid=%s: %s", uid, reason)
+        return send(chat_id, "Podpis koshelyka ne proshla proverku: " + str(reason)[:160])
+    nonce = proof.get("payload") or ""
+    if nonce:
+        if not tp.consume_nonce(nonce):
+            log.warning("nonce invalid/reused uid=%s", uid)
+            return send(chat_id, "Nonce ne deystvitelen ili uzhe ispolzovan.")
+    log.info("ton_proof ok uid=%s addr=%s pub=%s", uid, addr, pub)
+    return finish_wallet(chat_id, uid, addr)
+
 
 def finish_wallet(chat_id, uid, addr):
     """Zapis koshelyka v Airtable i perekhod k oplate."""
@@ -1238,3 +1353,55 @@ if __name__ == "__main__":
     if not TOKEN or not AT_TOKEN or not AT_BASE:
         log.error("AZABOT_TOKEN, AIRTABLE_TOKEN i AIRTABLE_BASE_ID obazatelny"); sys.exit(1)
     main()
+
+
+def cmd_save_walt_key(chat_id, uid, key=None, secret=None):
+    """Sohranyaet klyuch Walt (key + secret) i chestno soobshchaet o chastichnomu prozale.
+
+    Otdelno ot saysotnogo puti: JSON na server i zapis v Airtable. Esli hotya by
+    odin iz nih ne proshel - soobshchaetsya rovno, chto ne zapisano i chto
+    ne uvidit torgovyj cikl. Nikogda ne govorim "sohraneno", esli ne sohraneno.
+    """
+    key = (key or "").strip()
+    secret = (secret or "").strip()
+    if not key or not secret:
+        return send(chat_id,
+            "<b>\u041a\u043b\u044e\u0447 \u043d\u0435 \u0441\u043e\u0445\u0440\u0430\u043d\u0451\u043d</b>\n\n"
+            + "\u041d\u0443\u0436\u043d\u044b \u0438 \u043a\u043b\u044e\u0447, \u0438 \u0441\u0435\u043a\u0440\u0435\u0442. "
+            + "\u041f\u0440\u0438\u0441\u043b\u0430\u0442 \u043e\u0431\u0430 - \u044d\u0442\u043e \u0434\u0430\u043d\u043d\u044b\u0435 \u043a\u043b\u044e\u0447\u0430 Walt.")
+    rec, _fields = _get_user_fields(uid)
+    if not rec:
+        return send(chat_id,
+            "<b>\u041d\u0435 \u0432\u0438\u0436\u0443 \u043f\u0440\u043e\u0444\u0438\u043b\u044c.</b>\n\n"
+            + "\u0421\u043d\u0430\u0447\u0430\u043b\u0430 \u043d\u0430\u043f\u0438\u0448\u0438 \u043a\u043e\u043c\u0430\u043d\u0434\u0443 /start - \u0438 \u044f \u0441\u043e\u0445\u0440\u0430\u043d\u044e \u043a\u043b\u044e\u0447.")
+    json_ok = False
+    try:
+        p = write_user_json(uid, {"walt_key": key, "walt_secret": secret})
+        json_ok = p is not None
+    except Exception as e:
+        log.error("walt key: JSON isklonenie: %s", e)
+        json_ok = False
+    at_ok = False
+    try:
+        res = page_update(USERS_DB, rec, {
+            "Walt API Key": key, "Walt API Secret": secret, "Walt \u043a\u043b\u044e\u0447 \u0434\u043e\u0431\u0430\u0432\u043b\u0435\u043d": True})
+        at_ok = res is not None
+    except Exception as e:
+        log.error("walt key: Airtable isklonenie: %s", e)
+        at_ok = False
+    if at_ok and json_ok:
+        return send(chat_id,
+            "<b>\u041a\u043b\u044e\u0447 Walt \u0441\u043e\u0445\u0440\u0430\u043d\u0451\u043d</b>\n\n"
+            + "\u2705 \u041d\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0435 \u0437\u0430\u043f\u0438\u0441\u0430\u043d - \u0442\u043e\u0440\u0433\u043e\u0432\u044b\u0439 \u0446\u0438\u043a\u043b \u043a\u043b\u044e\u0447 \u0443\u0432\u0438\u0434\u0438\u0442.\n"
+            + "\u2705 \u0412 Airtable \u0437\u0430\u043f\u0438\u0441\u0430\u043d - \u043a\u043b\u044e\u0447 \u043f\u043e\u044f\u0432\u0438\u0442\u0441\u044f \u0432 \u043f\u0430\u043d\u0435\u043b\u0438 \u043d\u0430\u0441\u0442\u0440\u043e\u0435\u043a.")
+    lines = ["<b>\u26a0\ufe0f \u041a\u043b\u044e\u0447 Walt \u0441\u043e\u0445\u0440\u0430\u043d\u0451\u043d \u043d\u0435 \u043f\u043e\u043b\u043d\u043e\u0441\u0442\u044c\u044e</b>\n"]
+    if json_ok:
+        lines.append("\u2705 \u041d\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0435 \u0437\u0430\u043f\u0438\u0441\u0430\u043d - \u0442\u043e\u0440\u0433\u043e\u0432\u044b\u0439 \u0446\u0438\u043a\u043b \u043a\u043b\u044e\u0447 \u0443\u0432\u0438\u0434\u0438\u0442.")
+    else:
+        lines.append("\u274c \u041d\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0435 \u043d\u0435 \u0437\u0430\u043f\u0438\u0441\u0430\u0442\u044c - \u0442\u043e\u0440\u0433\u043e\u0432\u044b\u0439 \u0446\u0438\u043a\u043b \u041d\u0415 \u0443\u0432\u0438\u0434\u0438\u0442.")
+    if at_ok:
+        lines.append("\u2705 \u0412 Airtable \u0437\u0430\u043f\u0438\u0441\u0430\u043d - \u043a\u043b\u044e\u0447 \u043f\u043e\u044f\u0432\u0438\u0442\u0441\u044f \u0432 \u043f\u0430\u043d\u0435\u043b\u0438 \u043d\u0430\u0441\u0442\u0440\u043e\u0435\u043a.")
+    else:
+        lines.append("\u274c \u0412 Airtable \u043d\u0435 \u0437\u0430\u043f\u0438\u0441\u0430\u0442\u044c - \u0432 \u043f\u0430\u043d\u0435\u043b\u0438 \u043d\u0430\u0441\u0442\u0440\u043e\u0435\u043a \u043a\u043b\u044e\u0447 \u043d\u0435 \u043f\u043e\u044f\u0432\u0438\u0442\u0441\u044f.")
+    lines.append("\n\n\u041f\u043e\u043f\u0440\u043e\u0431\u0443\u0439 \u0435\u0449\u0451 \u0440\u0430\u0437. \u0415\u0441\u043b\u0438 \u043f\u043e\u0432\u0442\u043e\u0440\u044f\u0435\u0442\u0441\u044f - \u043d\u0430\u043f\u0438\u0448\u0438, \u0440\u0430\u0437\u0431\u0435\u0440\u0451\u043c\u0441\u044f.")
+    return send(chat_id, "\n".join(lines))

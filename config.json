@@ -1,20 +1,22 @@
 {
- "bot_username": "AzabotAi",
- "bot_url": "https://t.me/AzabotAi",
- "app_url": "https://azazel-trader-yz2uw75a.agent.mira.tg",
- "price_usd": 29,
- "price_ton": 9.5,
- "wallet": "UQCi-czlbdSHaUsUIfmnGjuCQia_Iq4ehomwik1ajLNgVHhX",
- "keeper": "UQAintXt7mpJqxnTXJF_2qg4xm8S-hXDCxbW3fCo8Gu3vJc_",
- "admin_tg_id": "",
- "skills": [
-  {
-   "slug": "myprice",
-   "name": "AI Slave",
-   "desc": "Ocenka tebya po istorii perepiski."
-  }
- ],
- "airtable_base_id": "app2PXtG16d227eoJ",
- "airtable_users_table": "tbl9q101sD0zmvrXx",
- "airtable_events_table": "tbl19AGwivPnURT5L"
+  "bot_username": "AzabotAi",
+  "bot_url": "https://t.me/AzabotAi",
+  "app_url": "https://azazelm.com/app/",
+  "price_usd": 29,
+  "price_ton": 9.5,
+  "wallet": "UQCi-czlbdSHaUsUIfmnGjuCQia_Iq4ehomwik1ajLNgVHhX",
+  "keeper": "UQAintXt7mpJqxnTXJF_2qg4xm8S-hXDCxbW3fCo8Gu3vJc_",
+  "admin_tg_id": "8459508879",
+  "skills": [
+    {
+      "slug": "myprice",
+      "name": "AI Slave",
+      "desc": "Ocenka tebya po istorii perepiski."
+    }
+  ],
+  "airtable_base_id": "app2PXtG16d227eoJ",
+  "airtable_users_table": "tbl9q101sD0zmvrXx",
+  "airtable_events_table": "tbl19AGwivPnURT5L",
+  "settings_url": "https://azazelm.com/settings/",
+  "metrics_url": "https://azazelm.com/metrics/"
 }

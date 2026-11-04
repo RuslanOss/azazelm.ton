@@ -15,7 +15,9 @@ sviezie dannye ottuda, inache - iz lokalnogo sostoyaniya.
 Bez vneshnih zavisimostey: tolko stdlib.
 """
 import json
+import logging
 import os
+import sys
 import time
 import urllib.request
 import urllib.error
@@ -26,11 +28,18 @@ STATE_FILE = os.path.join(BASE_DIR, "autotrading_config.json")
 AIRTABLE_TOKEN = os.environ.get("AIRTABLE_TOKEN", "")
 AIRTABLE_BASE_ID = os.environ.get("AIRTABLE_BASE_ID", "") or "app2PXtG16d227eoJ"
 AIRTABLE_USERS_TABLE = os.environ.get("AIRTABLE_USERS_TABLE", "") or "tbl9q101sD0zmvrXx"
+BOT_TOKEN = os.environ.get("AZABOT_TOKEN", "")
+try:
+    import azazel_initdata as _idm
+except Exception:
+    _idm = None
 WALT_API_KEY = os.environ.get("WALT_API_KEY", "")
 WALT_API_URL = os.environ.get("WALT_API_URL", "https://walt.bot/api")
 PORT = int(os.environ.get("AZAZEL_API_PORT", "8787"))
 CACHE_TTL = 5
-_cache = {"t": 0.0, "data": None}
+log = logging.getLogger('azazel_api')
+logging.basicConfig(level=logging.INFO)
+_cache = {"t": 0.0, "data": None, "uid": None}   # KLYUCH = uid: ranee odin globalnyi kэsh otdaval dannye drugogo yuid
 
 
 def _num(v):
@@ -108,16 +117,18 @@ def airtable_user(uid):
     """Polzovatel iz Airtable: imya, status podpiski, parametry."""
     if not AIRTABLE_TOKEN:
         return {}
-    url = ("https://api.airtable.com/v0/%s/%s?filterByFormula={Telegram%20ID}%%3D%%22%s%%22"
-           % (AIRTABLE_BASE_ID, AIRTABLE_USERS_TABLE, uid))
+    from urllib.parse import quote as _q
+    _flt = _q('{Telegram ID}="' + str(uid) + '"', safe="")
+    url = ("https://api.airtable.com/v0/" + AIRTABLE_BASE_ID + "/" + AIRTABLE_USERS_TABLE
+           + "?filterByFormula=" + _flt)
     try:
         req = urllib.request.Request(url, headers={"Authorization": "Bearer " + AIRTABLE_TOKEN})
         with urllib.request.urlopen(req, timeout=10) as r:
             recs = (json.load(r) or {}).get("records") or []
         if recs:
             return recs[0].get("fields") or {}
-    except Exception:
-        pass
+    except Exception as e:
+        log.warning("airtable_user(%s) failed: %s", uid, e)
     return {}
 
 
@@ -180,16 +191,49 @@ class Handler(BaseHTTPRequestHandler):
         if self.path.startswith("/api/metrics"):
             from urllib.parse import urlparse, parse_qs
             q = parse_qs(urlparse(self.path).query)
-            uid = (q.get("uid") or ["0"])[0]
+            init_data = (q.get("init_data") or [""])[0]
+            # UID beretsya TOLKO iz podpisannogo init_data.
+            # initDataUnsafe forgeable -> zapros uid iz query ne doveryaem.
+            if _idm is None or not BOT_TOKEN:
+                self._json(503, {"error": "initdata module unavailable"})
+                return
+            ok, uid, reason = _idm.verify(init_data, BOT_TOKEN, max_age=86400)
+            if not ok:
+                self._json(401, {"error": "auth failed: " + str(reason)})
+                return
             now = time.time()
-            if _cache["data"] is not None and now - _cache["t"] < CACHE_TTL:
+            if (_cache["data"] is not None and _cache.get("uid") == uid
+                    and now - _cache["t"] < CACHE_TTL):
                 self._json(200, _cache["data"])
                 return
             try:
                 d = build(uid)
-                _cache["t"], _cache["data"] = now, d
+                _cache["t"], _cache["data"], _cache["uid"] = now, d, uid
                 self._json(200, d)
             except Exception as e:
+                self._json(500, {"error": str(e)})
+            return
+        if self.path.startswith("/api/ton_nonce"):
+            from urllib.parse import urlparse, parse_qs
+            q = parse_qs(urlparse(self.path).query)
+            init_data = (q.get("init_data") or [""])[0]
+            if _idm is None or not BOT_TOKEN:
+                self._json(503, {"error": "initdata module unavailable"})
+                return
+            ok, uid, reason = _idm.verify(init_data, BOT_TOKEN, max_age=86400)
+            if not ok:
+                self._json(401, {"error": "auth failed: " + str(reason)})
+                return
+            try:
+                here = os.path.dirname(os.path.abspath(__file__))
+                if here not in sys.path:
+                    sys.path.insert(0, here)
+                import azazel_tonproof as tp
+                rec = tp.issue_nonce()
+                self._json(200, {"nonce": rec["nonce"], "domain": rec.get("domain", ""),
+                                 "expires_in": int(tp.NONCE_TTL)})
+            except Exception as e:
+                log.exception("ton_nonce: %s", e)
                 self._json(500, {"error": str(e)})
             return
         if self.path in ("/health", "/api/health"):
