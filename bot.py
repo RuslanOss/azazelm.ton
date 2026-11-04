@@ -280,6 +280,7 @@ def menu_buttons():
     if APP_URL:
         btns.append(("🚀 Открыть терминал", APP_URL, "web_app"))
     btns.append(("⚙️ Настройки", "settings"))
+    btns.append(("🧠 Алгоритм", "algo"))
     btns.append(("📊 Статус", "check_pay"))
     btns.append(("💎 Подписка", "pay_usd"))
     btns.append(("🆘 Помощь", "help"))
@@ -546,6 +547,7 @@ def _cb_inner(chat_id, uid, data):
         if s["step"] + 1 < len(STEPS): return ask(chat_id, uid, s["step"] + 1)
         return finish(chat_id, uid)
     if data == "view_params": return cmd_params(chat_id, uid)
+    if data == "algo": return cmd_algo(chat_id, uid)
     if data == "walt_key":
         return cmd_walt_key(chat_id, uid)
     if data == "cycle":
@@ -1255,6 +1257,10 @@ def handle_start_payload(chat_id, uid, name, username, payload):
         return cmd_status(chat_id, uid)
     if p == "report":
         return cmd_report(chat_id, uid)
+    if p == "pay":
+        return send(chat_id,
+            "<b>Подписка Azazel Trader</b>\n\nВыбери тариф — оплата идёт через Walt, доступ открывается сразу после подтверждения.",
+            [("$29/мес", "pay_usd"), ("9.5 TON/мес", "pay_ton")])
     if p == "menu":
         send_terminal_kb(chat_id)
         return send(chat_id, menu_text(uid, name, username), menu_buttons())
@@ -1335,6 +1341,9 @@ def main():
                         elif cmd == "/menu": send(chat_id, menu_text(uid, name, username), menu_buttons())
                         elif cmd in ("/app", "/terminal"): cmd_app(chat_id, uid)
                         elif cmd in ("/wallet", "/subscribe"): cmd_status(chat_id, uid)
+                        elif cmd in ("/cycle", "/algo"): cmd_cycle(chat_id, uid)
+                        elif cmd == "/metrics": cmd_metrics_page(chat_id, uid)
+                        elif cmd in ("/key", "/walt_key"): cmd_walt_key(chat_id, uid)
                         elif cmd in ("/help", "/support"): send(chat_id, HELP)
                         continue
                     if uid not in SESS:
