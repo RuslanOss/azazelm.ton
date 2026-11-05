@@ -773,10 +773,6 @@ def handle_webapp_data(chat_id, uid, data_str):
         return send(chat_id, menu_text(uid, "", ""), menu_buttons())
     if cmd == "walt_key":
         return cmd_walt_key(chat_id, uid)
-    if cmd == "ton_nonce":
-        return cmd_ton_nonce(chat_id, uid)
-    if cmd == "ton_connect":
-        return cmd_ton_connect(chat_id, uid, payload)
     if cmd == "settings_save":
         params = payload.get("params") or {}
         try:
@@ -818,120 +814,6 @@ def cmd_wallet(chat_id, uid, name, username):
     SESS[uid] = {"tg_id": uid, "step": WALLET_IDX, "data": {}, "page": pid,
                  "name": name, "wallet_only": True}
     return ask(chat_id, uid, WALLET_IDX)
-
-# ── TON Connect: nonce + проверка подписи кошелька ──
-def _tonproof():
-    """Zagruzaet modul azazel_tonproof. -> modul|None."""
-    try:
-        here = os.path.dirname(os.path.abspath(__file__))
-        if here not in sys.path:
-            sys.path.insert(0, here)
-        import azazel_tonproof as tp
-        return tp
-    except Exception as e:
-        log.exception("azazel_tonproof nedostupen: %s", e)
-        return None
-
-
-def _ton_addr_raw(addr):
-    """Privetitnyy adres TON (UQ../EQ..) -> raw '<wc>:<hex>' dlya proverki podpisi.
-
-    Format friendly-adresa: 48 simvolov base64url -> 36 bayt:
-    tag(1) + workchain(1) + hash(32) + crc16(2).
-    CRC16 schitaetsya po pervim 34 baytam (tag+workchain+hash).
-    Esli adres uzhe raw - vozvrashchaet kak est.
-    Esli razobrat ne udalos - vozvrashchaet ishodnyu stroku.
-    """
-    a = (addr or "").strip()
-    if not a:
-        return a
-    if ":" in a:
-        return a
-    try:
-        import base64
-        from ton_core.crypto import crc16
-        if len(a) != 48:
-            return a
-        raw = base64.urlsafe_b64decode(a + "=" * (-len(a) % 4))
-        if len(raw) != 36:
-            return a
-        if raw[0] not in (0x11, 0x01, 0x51):
-            return a
-        calc = crc16(raw[:34])
-        if isinstance(calc, bytes):
-            calc = int.from_bytes(calc, "big")
-        if calc != int.from_bytes(raw[34:36], "big"):
-            return a
-        wc = -1 if raw[1] == 0xFF else raw[1]
-        return "%d:%s" % (wc, raw[2:34].hex())
-    except Exception:
-        return a
-
-
-def cmd_ton_nonce(chat_id, uid):
-    """Vydet odnozagочный nonce dlya TON Connect."""
-    tp = _tonproof()
-    if tp is None:
-        return send(chat_id, "TON Connect vremenno nedostupen.")
-    try:
-        rec = tp.issue_nonce()
-    except Exception as e:
-        log.exception("issue_nonce: %s", e)
-        return send(chat_id, "Ne smog vydat nonce: " + str(e)[:120])
-    return send(chat_id, "<b>TON Connect nonce</b>\n\n<code>" + rec["nonce"] + "</code>\n\n"
-        + "Domen: <code>" + str(rec.get("domain", "")) + "</code>")
-
-
-def cmd_ton_connect(chat_id, uid, payload):
-    """Proveryaet ton_proof ot koshelyka i zapisyvaet koshelyok."""
-    tp = _tonproof()
-    if tp is None:
-        return send(chat_id, "TON Connect vremenno nedostupen.")
-    raw = payload.get("ton_proof") or payload.get("proof") or ""
-    if isinstance(raw, dict):
-        proof = raw
-    else:
-        try:
-            proof = json.loads(raw)
-        except Exception:
-            return send(chat_id, "Ne razobral ton_proof.")
-    if not isinstance(proof, dict):
-        return send(chat_id, "Ne razobral ton_proof.")
-    addr = (payload.get("address") or payload.get("wallet") or
-            proof.get("address") or "").strip()
-    if not _ton_addr_ok(addr):
-        return send(chat_id, "Nekorrektnyy adres koshelyka.")
-    pk = (payload.get("public_key") or payload.get("publicKey")
-          or proof.get("public_key") or proof.get("publicKey"))
-    if pk:
-        proof["public_key"] = pk
-    # walletStateInit: edinstvennoe dokazatelstvo, chto pubkey i adres iz
-    # odnogo koshelyka. Bez nego sviaz "kljuch -> adres" ne dokazuema:
-    # on-chain fallback ne rabotaet (toncenter v3 runGetMethod trebuet
-    # API-klyuch), a poyavljayushchiesya koshel'ki eshche ne razvyortany v seti.
-    wsi = (payload.get("wallet_state_init") or payload.get("walletStateInit")
-           or payload.get("state_init") or payload.get("stateInit") or "")
-    if wsi:
-        proof["walletStateInit"] = wsi
-    else:
-        log.warning("ton_connect without walletStateInit uid=%s addr=%s", uid, addr)
-        return send(chat_id,
-            "Ne prishol walletStateInit ot koshelyka. Bez nego nye zvani, "
-            "chto klyuch i adres iz odnogo koshelyka. Perepodklyuchi koshelek "
-            "i nazhmi \u00ab\u0421\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c \u043a\u043e\u0448\u0435\u043b\u0451\u043a\u00bb \u0441\u043d\u043e\u0432\u0430.")
-    ok, reason, pub = tp.verify_proof(proof, _ton_addr_raw(addr),
-                                      expected_domain=tp.ALLOWED_DOMAINS)
-    if not ok:
-        log.warning("ton_proof rejected uid=%s: %s", uid, reason)
-        return send(chat_id, "Podpis koshelyka ne proshla proverku: " + str(reason)[:160])
-    nonce = proof.get("payload") or ""
-    if nonce:
-        if not tp.consume_nonce(nonce):
-            log.warning("nonce invalid/reused uid=%s", uid)
-            return send(chat_id, "Nonce ne deystvitelen ili uzhe ispolzovan.")
-    log.info("ton_proof ok uid=%s addr=%s pub=%s", uid, addr, pub)
-    return finish_wallet(chat_id, uid, addr)
-
 
 def finish_wallet(chat_id, uid, addr):
     """Zapis koshelyka v Airtable i perekhod k oplate."""
