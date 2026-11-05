@@ -8,12 +8,12 @@
 set -uo pipefail
 
 echo "=== Azazel WEB-ASSETS DEPLOY ==="
-WEB_SHA="25adbf7b7c77d5e8d9b5bf635148c3d3529de617"
+WEB_SHA="1261867c505f715bee1a179e20cc249e2a823170"
 WEB_BASE="https://raw.githubusercontent.com/RuslanOss/azazelm.ton/${WEB_SHA}"
 WEB_FILES="web/app/assets/devil-256.png web/app/assets/devil-64.png web/app/index.html"
 declare -A WEB_WANT=(
-  ["devil-256.png"]="b656fbbca418668b83838ef37232f4415f150e336371097fe32456875f2e31ad"
-  ["devil-64.png"]="9264fe5c200ea67a0545f6f7667e28124add1419239953325038f1b16295e5c0"
+  ["devil-256.png"]="e5db284da3f2577da339381d7434d1b1956a2526196057751a492b8832c74ce6"
+  ["devil-64.png"]="53621fe3b65d925458a63faff3004c3c9f59f1fd67a24e3507141afbed5ba7de"
   ["index.html"]="29733bbe26b6aaf88f67f78c1ea5e9022cb7c919daf8bcfc2da80fc8591b68a2"
 )
 
