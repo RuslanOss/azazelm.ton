@@ -39,7 +39,7 @@ echo "[4/10] web-assety (ikonka Mini App)"
 if [ "${ONLY_WEB:-0}" = "1" ]; then echo "    rezhim ONLY_WEB=1 - tolko web-assety"; fi
 # Ikonka - belyj silujet v PNG. Vsyu logiku (WEBROOT, sha256, ochistka staryh JPEG,
 # nginx reload, live-probe) derzhit otdelnyy skript, zdes zovem ego.
-WEBASSETS_SHA="f7e2241819a5b99633d69d2a6dc463c0df2f5936"
+WEBASSETS_SHA="92ad26c5e111ad40e07451c761585223a4ad996a"
 WEBASSETS_BASE="https://raw.githubusercontent.com/RuslanOss/azazelm.ton/${WEBASSETS_SHA}"
 if curl -fsSL --max-time 40 "${WEBASSETS_BASE}/deploy_web_assets.sh" -o /tmp/_deploy_web_assets.sh; then
   chmod +x /tmp/_deploy_web_assets.sh
