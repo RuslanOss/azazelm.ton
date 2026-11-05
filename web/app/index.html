@@ -309,11 +309,21 @@ async function pickWallet(){
   var list=[];
   try{ list=await TonConnect.getWallets(); }catch(e){ tlog('getWallets '+e); }
   if(!list||!list.length){ tlog('no wallets in list'); }
+  // Rasshireniya (injected) zhivut tol'ko na svoei stranice. V Telegram Mini App
+  // ih net -> SDK padaet s WalletNotInjectedError. Takie wallety otsekaem,
+  // berem tol'ko te, chto otkryvaetsya cherez universalLink/bridge.
+  var usable=[];
   for(var i=0;i<(list||[]).length;i++){
     var w=list[i];
-    if(w && w.appName && w.universalLink) return w;
+    if(!w) continue;
+    var injectedOnly = !!(w.injected && w.injected!==undefined && !w.universalLink && !w.bridgeUrl);
+    if(injectedOnly){ tlog('skip injected-only: '+(w.appName||'?')); continue; }
+    usable.push(w);
   }
-  return (list&&list[0])||null;
+  for(var j=0;j<usable.length;j++){
+    if(usable[j] && usable[j].universalLink) return usable[j];
+  }
+  return usable[0]||null;
 }
 
 async function tonConnect(){
