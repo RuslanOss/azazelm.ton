@@ -431,8 +431,8 @@ def cmd_app(chat_id, uid):
     send_terminal_kb(chat_id)
     return send(chat_id,
         "<b>🚀 Azazel Trader</b>\n\n"
-        + "Avtonomnyy torgovyy terminal v mini app: rynok, otbor tochek, vhody, stopy, razbor sdelok.\n\n"
-        + "Nastroyki zdesz zhe — tyom zhe polzovatel, tot zhe Airtable.",
+        + "Автономный торговый терминал в мини-приложении: рынок, отбор точек, входы, стопы, разбор сделок.\n\n"
+        + "Настройки здесь же — тот же пользователь, тот же Airtable.",
         [("Открыть терминал", APP_URL, "web_app")])
 
 
@@ -920,7 +920,7 @@ def cmd_ton_connect(chat_id, uid, payload):
             "chto klyuch i adres iz odnogo koshelyka. Perepodklyuchi koshelek "
             "i nazhmi \u00ab\u0421\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c \u043a\u043e\u0448\u0435\u043b\u0451\u043a\u00bb \u0441\u043d\u043e\u0432\u0430.")
     ok, reason, pub = tp.verify_proof(proof, _ton_addr_raw(addr),
-                                      expected_domain=tp.DEFAULT_DOMAIN)
+                                      expected_domain=tp.ALLOWED_DOMAINS)
     if not ok:
         log.warning("ton_proof rejected uid=%s: %s", uid, reason)
         return send(chat_id, "Podpis koshelyka ne proshla proverku: " + str(reason)[:160])
