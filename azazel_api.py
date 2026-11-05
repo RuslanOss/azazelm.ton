@@ -665,7 +665,7 @@ class Handler(BaseHTTPRequestHandler):
         if rec.get("status") == "executed":
             self._json(409, {"error": "заявка уже исполнена"})
             return
-        if rec.get("status") != "pending":
+        if rec.get("status") not in ("pending", "approved", "failed"):
             self._json(409, {"error": "заявка не в статусе ожидания: %s"
                              % rec.get("status")})
             return
@@ -735,10 +735,32 @@ class Handler(BaseHTTPRequestHandler):
             res = _execute_approved_order(uid, rec)
         except Exception as e:
             log.exception("ton_approve: execution failed uid=%s", uid)
-            rec["status"] = "approved"
+            rec["status"] = "pending"
             rec["result"] = {"ok": False, "error": str(e)[:200]}
+            rec["failed_at"] = time.time()
             _apv.save_approval(uid, rec)
             self._json(500, {"error": "исполнение не удалось: " + str(e)[:160]})
+            return
+        if not res.get("ok"):
+            # OrdER ne uwel na birzhu. Zayavku vozvrashchaem v pending i
+            # vydaem novyy nonce, chtoby polzovatel' mog podpisat' zanovo.
+            rec["status"] = "pending"
+            rec["result"] = res
+            rec["failed_at"] = time.time()
+            rec.pop("approved_at", None)
+            new_nonce = ""
+            try:
+                new_nonce = _apv._issue_nonce()
+            except Exception:
+                new_nonce = ""
+            if new_nonce:
+                rec["nonce"] = new_nonce
+            _apv.save_approval(uid, rec)
+            log.warning("ton_approve execution failed uid=%s %s: %s",
+                        uid, rec["order"].get("symbol"), res.get("error"))
+            self._json(200, {"ok": False, "approval_id": aid,
+                             "error": str(res.get("error") or "исполнение не удалось")[:160],
+                             "retryable": True, "result": res})
             return
         rec["status"] = "executed"
         rec["executed_at"] = time.time()

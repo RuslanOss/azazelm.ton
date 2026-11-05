@@ -203,6 +203,7 @@ def list_approvals(uid, only_pending=False):
         out.append({
             "id": aid,
             "status": rec.get("status"),
+            "nonce": rec.get("nonce"),
             "order": rec.get("order"),
             "order_hash": rec.get("order_hash"),
             "created": rec.get("created"),
