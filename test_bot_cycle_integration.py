@@ -29,7 +29,9 @@ os.environ["ADMIN_TG_ID"] = "1"
 os.environ["AZAZEL_DATA_DIR"] = D
 os.environ["AZAZEL_CYCLE_ENABLED"] = "0"   # фоновый поток не запускаем в тестах
 
+import azazel_test_guard as _guard  # izolyaciya ot boevoy Airtable/Telegram
 import bot
+_guard.protect_bot(bot)
 
 check("bot импортируется", bot is not None)
 check("раннер доступен боту", bot._CR is not None, bot._CR)

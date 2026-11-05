@@ -7,6 +7,7 @@ extra - плоские перекрытия профиля пользовате�
 """
 import sys, os, json
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import azazel_test_guard  # izolyaciya ot boevoy Airtable/Telegram
 import continuation_engine as ce
 import azazel_config_loader as L
 

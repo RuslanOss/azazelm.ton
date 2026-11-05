@@ -11,6 +11,7 @@
 """
 import sys, os, json, tempfile, shutil
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import azazel_test_guard  # izolyaciya ot boevoy Airtable/Telegram
 import azazel_cycle_runner as R
 
 FAILS=[]; PASSES=[]

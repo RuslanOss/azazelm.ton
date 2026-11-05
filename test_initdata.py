@@ -2,6 +2,7 @@
 import hashlib, hmac, json, sys, time
 from urllib.parse import urlencode
 sys.path.insert(0, "/mnt/work/srv")
+import azazel_test_guard  # izolyaciya ot boevoy Airtable/Telegram
 import azazel_initdata as A
 
 TOKEN = "123456:TESTTOKEN"

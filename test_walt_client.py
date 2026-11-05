@@ -6,6 +6,7 @@
 """
 import sys, os, json, hmac, hashlib, urllib.parse, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import azazel_test_guard  # izolyaciya ot boevoy Airtable/Telegram
 import walt_client as W
 
 FAILS=[]; PASSES=[]

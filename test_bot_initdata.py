@@ -5,7 +5,9 @@ sys.path.insert(0, "/mnt/work/srv")
 os.environ.setdefault("AZABOT_TOKEN", "123456:TESTTOKEN")
 os.environ.setdefault("AIRTABLE_TOKEN", "patTEST")
 os.environ.setdefault("AIRTABLE_BASE_ID", "appTEST")
+import azazel_test_guard as _guard  # izolyaciya ot boevoy Airtable/Telegram
 import bot
+_guard.protect_bot(bot)
 
 SENT = []
 bot.send = lambda chat_id, text, buttons=None: (SENT.append((chat_id, text)) or {"ok": True})

@@ -2,6 +2,7 @@
 """Тесты обёртки execute_plan в CE."""
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import azazel_test_guard  # izolyaciya ot boevoy Airtable/Telegram
 import continuation_engine as ce
 import azazel_executor_factory as F
 

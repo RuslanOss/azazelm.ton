@@ -15,7 +15,9 @@ os.environ.setdefault("AZABOT_TOKEN", "123456:TESTTOKEN")
 os.environ.setdefault("AIRTABLE_TOKEN", "patTEST")
 os.environ.setdefault("AIRTABLE_BASE_ID", "appTEST")
 
+import azazel_test_guard as _guard  # izolyaciya ot boevoy Airtable/Telegram
 import bot
+_guard.protect_bot(bot)
 from steps import STEPS
 
 UID = 8459508879

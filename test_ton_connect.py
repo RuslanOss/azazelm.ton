@@ -41,7 +41,7 @@ def load_env():
             os.environ.setdefault(k.strip(), v.strip().strip("'\""))
 
 
-load_env()
+import azazel_test_guard as _guard  # izolyaciya ot boevoy Airtable/Telegram
 
 import azazel_initdata as idm
 import azazel_tonproof as tp
@@ -94,6 +94,7 @@ check("uid из подписи", uid == UID, uid)
 
 # ── 5. Поднимаем API на эфемерном порту ─────────────────────────────
 import azazel_api as api
+_guard.protect_api(api)
 
 SAVED = []
 _real_save = api._ton_save_wallet
