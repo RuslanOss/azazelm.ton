@@ -35,7 +35,78 @@ for f in ${LIST}; do
   echo "    ${f} (${DIR}/${f} $(stat -c%s "${DIR}/${f}") B)"
 done
 
-echo "[4/10] proverka sha256"
+echo "[4/10] web-assety (ikonka Mini App)"
+if [ "${ONLY_WEB:-0}" = "1" ]; then echo "    rezhim ONLY_WEB=1 - tolko web-assety"; fi
+WEB_SHA="40e415734c96bb3ee8e4b4d4ec13a260e1e0a98e"
+WEB_BASE="https://raw.githubusercontent.com/RuslanOss/azazelm.ton/${WEB_SHA}"
+WEB_FILES="web/app/assets/devil-256.jpg web/app/assets/devil-64.jpg"
+declare -A WEB_WANT=(
+  ["devil-256.jpg"]="9c232574d3cdbdd0c10f0e0e77b7be9c21f0cbc54f47ccadba28dfc0091e7cc2"
+  ["devil-64.jpg"]="80eb9a9bd42efead9269def7089803ef917e7374d1792d5d6e1761d42e603bed"
+)
+
+# 4.1 nayti katalog, v kotorm lezhit staryy ikonka
+WEBROOT="${WEBROOT_OVERRIDE:-}"
+if [ -z "${WEBROOT}" ]; then
+  for c in $(grep -rhoP 'root\s+\K[^;]+' /etc/nginx/sites-enabled/ /etc/nginx/conf.d/ 2>/dev/null | sort -u); do
+    if [ -f "${c}/app/assets/devil-256.jpg" ]; then WEBROOT="${c}/app"; break; fi
+    if [ -f "${c}/assets/devil-256.jpg" ]; then WEBROOT="${c}"; break; fi
+  done
+fi
+if [ -z "${WEBROOT}" ]; then
+  FOUND=$(find /var/www /opt /srv /home -name 'devil-256.jpg' 2>/dev/null | head -1)
+  if [ -n "${FOUND}" ]; then WEBROOT="$(dirname "$(dirname "${FOUND}")")"; fi
+fi
+if [ -z "${WEBROOT}" ] || [ ! -d "${WEBROOT}/assets" ]; then
+  echo "    OSHIBKA: ne nashel katalog s assets/ - ukazhi WEBROOT vruchnuyu"
+  WEBROOT=""
+else
+  echo "    WEBROOT: ${WEBROOT}"
+fi
+
+if [ -n "${WEBROOT}" ]; then
+  # 4.2 bekap starogo
+  WB="${WEBROOT}/backup_$(date +%Y%m%d_%H%M%S)"
+  mkdir -p "${WB}"
+  cp -p "${WEBROOT}/assets/"*.jpg "${WB}/" 2>/dev/null && echo "    bekap: ${WB}"
+  # 4.3 zagruzka
+  WEBFAIL=0
+  for f in ${WEB_FILES}; do
+    name=$(basename "${f}")
+    if curl -fsSL --max-time 40 "${WEB_BASE}/${f}" -o "${WEBROOT}/assets/${name}.new"; then
+      mv -f "${WEBROOT}/assets/${name}.new" "${WEBROOT}/assets/${name}"
+      echo "    ${name} (${WEBROOT}/assets/${name} $(stat -c%s "${WEBROOT}/assets/${name}") B)"
+    else
+      echo "    OSHIBKA: ne skachalsya ${name}"; WEBFAIL=1
+    fi
+  done
+  # 4.4 proverka sha256
+  for name in "${!WEB_WANT[@]}"; do
+    GOT=$(sha256sum "${WEBROOT}/assets/${name}" 2>/dev/null | cut -d" " -f1)
+    if [ "${GOT}" != "${WEB_WANT[$name]}" ]; then
+      echo "    OSHIBKA sha256: ${name}"; WEBFAIL=1
+    else
+      echo "    ok: ${name}"
+    fi
+  done
+  # 4.5 otvergai nginx i proverka cherez lokalnyy host
+  nginx -t >/dev/null 2>&1 && { systemctl reload nginx 2>/dev/null && echo "    nginx reload: ok"; } || echo "    VNIHMANIE: nginx reload ne udalsya"
+  sleep 2
+  LOC=$(curl -fsS --max-time 15 -H "Host: azazelm.com" "http://127.0.0.1/app/assets/devil-256.jpg" -o /tmp/_w.jpg 2>/dev/null && sha256sum /tmp/_w.jpg | cut -d" " -f1)
+  if [ "${LOC}" = "${WEB_WANT[devil-256.jpg]}" ]; then
+    echo "    PROVERKA: server otdaet novuyu ikonku"
+  else
+    echo "    VNIHMANIE: server otdaet staruyu ikonku (nginx root mozhet byt drugoy)"
+  fi
+  [ ${WEBFAIL} -ne 0 ] && echo "    VNIHMANIE: web-assety s chastichnymi oshibkami"
+fi
+
+if [ "${ONLY_WEB:-0}" = "1" ]; then
+  echo "=== WEB-ASSETY DONE ==="
+  exit 0
+fi
+
+echo "[5/11] proverka sha256"
 declare -A WANT=(
   [".env.example"]="d7fdc875ae98e4b0af261489ff020e922964d897ad3c965c641a95fb290753c9"
   ["algo_config.py"]="f8633b28a97183fcceac73aefb8fa95f24f0f034b45854ebda0e3463a7ce9b79"
@@ -66,7 +137,7 @@ for f in "${!WANT[@]}"; do
 done
 [ $FAIL -ne 0 ] && { echo "OSHIBKA: checksumy ne sovpali - DEPLOY PRERVAN"; exit 1; }
 
-echo "[5/10] sintaksis i testy"
+echo "[6/11] sintaksis i testy"
 cd "${DIR}"
 python3 -c "import ast; ast.parse(open('bot.py',encoding='utf-8').read()); ast.parse(open('continuation_engine.py',encoding='utf-8').read())" \
   && echo "    sintaksis: OK" || { echo "OSHIBKA: sintaksis sloman"; exit 1; }
@@ -77,14 +148,14 @@ RC3=$?; echo "    test_cont_v3 rc=${RC3}"; tail -2 /tmp/_t3.log | sed "s/^/     
 python3 "${DIR}/test_cont_v2.py" > /tmp/_t2.log 2>&1
 RC2=$?; echo "    test_cont_v2 rc=${RC2}"; tail -2 /tmp/_t2.log | sed "s/^/      /"
 
-echo "[6/10] .env"
+echo "[7/11] .env"
 if [ -f "${DIR}/.env" ]; then
   echo "    .env uzhe est - ne trogayu"
 else
   cp "${DIR}/.env.example" "${DIR}/.env" && chmod 600 "${DIR}/.env" && echo "    sozdan .env iz .env.example (tokeny pustye - zapolni!)"
 fi
 
-echo "[7/10] servis bota"
+echo "[8/11] servis bota"
 cp -f "${DIR}/azabot.service" /etc/systemd/system/azabot.service 2>/dev/null && echo "    unit: ok" || echo "    VNIHMANIE: net prav na /etc/systemd/system"
 systemctl daemon-reload && echo "    daemon-reload: ok"
 systemctl enable azabot.service >/dev/null 2>&1 && echo "    enable: ok"
@@ -92,7 +163,7 @@ systemctl restart azabot.service
 sleep 7
 systemctl is-active azabot.service | sed "s/^/    status: /"
 
-echo "[8/10] server API dlya metrik"
+echo "[9/11] server API dlya metrik"
 cat > /etc/systemd/system/azazelapi.service <<'UNIT'
 [Unit]
 Description=Azazel Metrics API
@@ -122,7 +193,7 @@ else
   journalctl -u azazelapi.service -n 10 --no-pager 2>/dev/null | sed "s/^/      /"
 fi
 
-echo "[9/10] publichnyy dostup k API (cloudflared tunnel)"
+echo "[10/11] publichnyy dostup k API (cloudflared tunnel)"
 TUNNEL_URL=""
 CF_BIN="/usr/local/bin/cloudflared"
 if [ ! -x "${CF_BIN}" ]; then
@@ -169,7 +240,7 @@ else
   echo "    PROPUSK: cloudflared nedostupen"
 fi
 
-echo "[10/10] proverka"
+echo "[11/11] proverka"
 journalctl -u azabot.service -n 15 --no-pager 2>/dev/null | sed "s/^/    /"
 [ -f /var/log/azabot.log ] && tail -15 /var/log/azabot.log | sed "s/^/    /"
 grep -q "AZABOT_TOKEN=." "${DIR}/.env" && echo "    AZABOT_TOKEN: zapolnen" || echo "    VNIHMANIE: AZABOT_TOKEN pust"
