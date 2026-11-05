@@ -1288,6 +1288,10 @@ def handle_start_payload(chat_id, uid, name, username, payload):
     if p == "cycle":
         return cmd_cycle(chat_id, uid)
     if p == "metrics":
+        # Otvet v chat tekstom + knopka "Otkryt metriki" - i tak i tak pol'zovatelu
+        # vidno rezultat bez perehoda na stranicu.
+        return cmd_metrics_data(chat_id, uid)
+    if p == "metrics_page":
         return cmd_metrics_page(chat_id, uid)
     if p == "metrics_data":
         return cmd_metrics_data(chat_id, uid)
@@ -1308,6 +1312,17 @@ def handle_start_payload(chat_id, uid, name, username, payload):
         return start(chat_id, uid, name, username)
     if p == "wallet":
         return cmd_wallet(chat_id, uid, name, username)
+    if p == "walt_key" or p == "key":
+        return cmd_walt_key(chat_id, uid)
+    if p == "help" or p == "support":
+        return send(chat_id, HELP)
+    if p == "skills":
+        return send(chat_id, SKILLS_TXT)
+    if p == "app" or p == "terminal":
+        return cmd_app(chat_id, uid)
+    if p == "home":
+        send_terminal_kb(chat_id)
+        return send(chat_id, menu_text(uid, name, username), menu_buttons())
     send_terminal_kb(chat_id)
     return start(chat_id, uid, name, username)
 
