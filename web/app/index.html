@@ -216,28 +216,41 @@ document.addEventListener('click', function(ev){
 function showErr(id,t){var e=document.getElementById(id);e.textContent=t;e.style.display='block';}
 function clearErr(id){var e=document.getElementById(id);if(e)e.style.display='none';}
 function go(){
-  try{if(tg&&tg.close)tg.close();else location.href='https://t.me/AzabotAi?start=menu';}
-  catch(e){location.href='https://t.me/AzabotAi?start=menu';}
+  toChat('menu');
+}
+var BOT='https://t.me/AzabotAi';
+// Perevod v chat cherez deep-link: "/start <cmd>". Rabotaet vsegda,
+// dazhe esli web_app_data ne dostal do bota.
+function toChat(cmd){
+  var url=BOT+'?start='+encodeURIComponent(cmd);
+  try{if(tg&&tg.openTelegramLink){tg.openTelegramLink(url);return true;}}catch(e){}
+  try{location.href=url;return true;}catch(e){}
+  return false;
 }
 function send(payload){
   clearErr('err');clearErr('err2');clearErr('err3');
   var id=(tg&&tg.initData)?tg.initData:'';
   if(!id){
-    showErr('err','Mini App запущен вне Telegram — данные не передать. Открой бота и напиши /start');
-    try{if(tg&&tg.openTelegramLink)tg.openTelegramLink('https://t.me/AzabotAi?start=menu');}catch(e){}
+    showErr('err','Mini App запущен вне Telegram — открою чат бота.');
+    toChat(payload&&payload.cmd?payload.cmd:'menu');
     return;
   }
   payload.init_data=id;
   var ok=false;
   try{if(tg&&tg.sendData){tg.sendData(JSON.stringify(payload));ok=true;}}catch(e){ok=false;}
-  if(ok){
-    var o=document.getElementById('ok');
-    o.style.display='block';
-    o.innerHTML='Отправлено боту — ответ придёт в чат.';
-    setTimeout(go,900);
-  } else {
-    showErr('err','Не удалось передать данные. Открой бота и напиши /start');
-    try{if(tg&&tg.openTelegramLink)tg.openTelegramLink('https://t.me/AzabotAi?start=menu');}catch(e){}
+  var o=document.getElementById('ok');
+  o.style.display='block';
+  o.innerHTML=ok?'Отправлено боту — открываю чат с ответом.':'Открываю чат с командой.';
+  // Dva kanala: sendData (bot otvechaet v chat) + deep-link (strakhovka,
+  // esli Telegram ne peredal web_app_data).
+  // Komandy s payload (ton_connect, settings_save) idut tol'ko cherez
+  // sendData - deep-link ih ne umeet peredat.
+  var cmd=(payload&&payload.cmd)?payload.cmd:'';
+  var NEEDS_PAYLOAD={ton_connect:1,ton_nonce:1,settings_save:1};
+  if(cmd&&!NEEDS_PAYLOAD[cmd]){
+    setTimeout(function(){ toChat(cmd); },600);
+  } else if(cmd&&NEEDS_PAYLOAD[cmd]){
+    setTimeout(function(){ try{if(tg&&tg.close)tg.close();}catch(e){} },600);
   }
 }
 
