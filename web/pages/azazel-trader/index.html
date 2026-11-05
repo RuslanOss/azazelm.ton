@@ -231,7 +231,7 @@ function go(){
   toChat('menu');
 }
 var BOT='https://t.me/AzabotAi';
-var API_BASE='https://azazelm.com';
+var API_BASE='';
 // Perevod v chat cherez deep-link: "/start <cmd>". Rabotaet vsegda,
 // dazhe esli web_app_data ne dostal do bota.
 function toChat(cmd){
@@ -256,7 +256,8 @@ function send(payload){
   o.innerHTML=ok?'Отправлено боту — открываю чат с ответом.':'Открываю чат с командой.';
   // Dva kanala: sendData (bot otvechaet v chat) + deep-link (strakhovka,
   // esli Telegram ne peredal web_app_data).
-  // Komandy s payload idut tol'ko cherez sendData - deep-link ih ne umeet peredat.
+  // Komandy s payload (ton_connect, settings_save) idut tol'ko cherez
+  // sendData - deep-link ih ne umeet peredat.
   var cmd=(payload&&payload.cmd)?payload.cmd:'';
   var NEEDS_PAYLOAD={ton_connect:1,ton_nonce:1,settings_save:1};
   // Dubl: ranee sendData i toChat shli komandu dvazhdy - bot otvechal dvoyazhdy,
@@ -353,7 +354,7 @@ var tonState = { ready:false, connected:false, address:'', proof:null, publicKey
 
 function tlog(m){ try{ console.log('[ton]', m); }catch(e){} }
 
-var API_BASE='https://azazelm.com';
+var API_BASE='';
 async function getNonce(){
   var id=(tg&&tg.initData)?tg.initData:'';
   var r=await fetch(API_BASE+'/api/ton_nonce?init_data='+encodeURIComponent(id),{credentials:'same-origin'});
