@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<link rel="icon" type="image/jpeg" href="assets/devil-64.jpg">
+<title>Azazel Trader</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#F4F5F7;color:#14181F;min-height:100vh;padding:16px;padding-bottom:40px;-webkit-font-smoothing:antialiased}
+.card{background:#FFFFFF;border:1px solid #E3E6EA;border-radius:14px;padding:20px;max-width:520px;margin:0 auto;box-shadow:0 1px 2px rgba(16,24,40,.04)}
+.brand{display:flex;align-items:center;gap:12px;margin-bottom:8px}.brand-logo{width:52px;height:52px;border-radius:14px;object-fit:cover;flex:0 0 auto;box-shadow:0 6px 18px rgba(120,0,0,.25);border:1px solid rgba(255,255,255,.7)}.brand-txt{min-width:0}
+h1{font-size:21px;color:#0B0E11;margin-bottom:4px;letter-spacing:-.3px;font-weight:700}
+.subtitle{font-size:13px;color:#6B7480;margin-bottom:18px}
+.sec{font-size:11px;color:#7A828D;text-transform:uppercase;letter-spacing:.08em;margin:24px 0 10px;font-weight:700}
+.tabs{display:flex;gap:6px;margin-bottom:18px;background:#fff;border:1px solid #E3E6EA;border-radius:12px;padding:5px}
+.tab{flex:1;text-align:center;padding:9px 6px;border-radius:8px;font-size:13px;font-weight:600;color:#6B7480;cursor:pointer;transition:.15s}
+.tab.on{background:#0B0E11;color:#fff}
+.panel{display:none}
+.panel.on{display:block}
+.kpi{background:#FAFBFC;border:1px solid #E3E6EA;border-radius:11px;padding:14px;margin-bottom:10px}
+.lb{font-size:11px;color:#7A828D;text-transform:uppercase;letter-spacing:.06em;font-weight:700;margin-bottom:6px}
+.vl{font-size:22px;font-weight:700;color:#0B0E11;letter-spacing:-.4px}
+.dl{font-size:12px;color:#6B7480;margin-top:3px}
+.up{color:#0E9F6E}.down{color:#B32D3E}.flat{color:#6B7480}
+.bar{height:5px;background:#EAECF0;border-radius:99px;margin-top:9px;overflow:hidden}
+.bar div{height:100%;background:#0B0E11;border-radius:99px;transition:width .4s}
+.row{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:12px 0;border-bottom:1px solid #EDEFF2}
+.row:last-child{border-bottom:none}
+.rk{font-size:14px;color:#0B0E11;font-weight:600}
+.rv{font-size:13px;color:#6B7480;text-align:right;max-width:55%}
+.empty{font-size:13px;color:#9AA1AE;text-align:center;padding:18px 0}
+.btn{display:block;width:100%;padding:13px;border:none;border-radius:9px;font-size:15px;font-weight:600;cursor:pointer;margin-top:10px;font-family:inherit;transition:.15s}
+.btn:active{transform:scale(.99)}
+.btn-p{background:#0B0E11;color:#fff}.btn-p:hover{background:#23282F}
+.btn-s{background:#FFFFFF;border:1px solid #D7DBE0;color:#2A3038}
+.btn-s:hover{background:#FAFBFC}
+.btn-y{background:#C77700;color:#fff}.btn-y:hover{background:#A86600}
+.note{font-size:11.5px;color:#7A828D;line-height:1.55;margin-top:14px}
+.err{color:#B32D3E;font-size:13px;margin-top:10px;display:none}
+.ok-box{background:rgba(14,159,110,.08);border:1px solid #9FD9C4;border-radius:10px;padding:12px;font-size:13px;color:#0B8158;display:none;margin-top:12px}
+.hint{background:#FFFAEB;border:1px solid #FEDF89;border-radius:10px;padding:12px;font-size:12.5px;color:#B54708;margin-bottom:14px;line-height:1.5}
+.ts{font-size:11px;color:#A1A7B3;text-align:center;margin-top:14px}
+.pill{display:inline-block;font-size:11px;padding:3px 9px;border-radius:99px;background:#EEF0F3;color:#4B5563;font-weight:600;margin-left:6px}
+.pill.ok{background:rgba(14,159,110,.12);color:#0B8158}
+.pill.warn{background:#FFF4E5;color:#B54708}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="brand"><img class="brand-logo" src="assets/devil-256.jpg" alt="Azazel" width="52" height="52"><div class="brand-txt"><h1>Azazel Trader</h1><div class="subtitle" id="sub">Подключение…</div></div></div>
+  
+  <div class="tabs">
+    <div class="tab on" data-p="home">Главная</div>
+    <div class="tab" data-p="status">Статус</div>
+    <div class="tab" data-p="params">Параметры</div>
+  </div>
+
+  <!-- HOME -->
+  <div class="panel on" id="p-home">
+    <div class="hint" id="hint" style="display:none">
+      <b>Счёт ещё не подключён.</b> Агентский субсчёт запрашивается у Walt по API-ключу — он хранится в настройках бота. Пока ключ не задан, здесь честное «нет данных», а не выдуманные цифры.
+    </div>
+
+    <div class="sec">Что умеет агент</div>
+    <div class="row"><div class="rk">Портфельный аналитик</div><div class="rv">P&amp;L, open interest, CVD, ликвидации</div></div>
+    <div class="row"><div class="rk">Контроль рисков</div><div class="rv">Стопы по ATR, лимит убытка, фильтр корреляций</div></div>
+    <div class="row"><div class="rk">Автономный цикл</div><div class="rv">Сам проверяет рынок и исполняет сделки</div></div>
+    <div class="row"><div class="rk">Три стратегии</div><div class="rv">Sniper · Swing Hunter · Cascade</div></div>
+
+    <div class="sec">Быстрые действия</div>
+    <button class="btn btn-p" id="bStart" type="button">▶ Запустить торговый цикл</button>
+    <button class="btn btn-s" id="bReport" type="button">📄 Отчёт за сегодня</button>
+    <button class="btn btn-s" id="bStatus" type="button">📊 Текущий статус</button>
+    <button class="btn btn-s" id="bKey" type="button">🔑 Ключ Walt</button>
+    <a class="btn btn-s" href="https://azazel-settings-yz2uw75a.agent.mira.tg/" target="_blank" rel="noopener">⚙️ Все настройки торговли</a>
+
+    <div class="err" id="err"></div>
+    <div class="ok-box" id="ok"></div>
+    <div class="ts" id="ts"></div>
+  </div>
+
+  <!-- STATUS -->
+  <div class="panel" id="p-status">
+    <div class="kpi"><div class="lb">Остаток депозита</div><div class="vl" id="kBal">—</div><div class="dl flat" id="kBalSub">свободная маржа</div></div>
+    <div class="kpi"><div class="lb">Онлайн PnL</div><div class="vl" id="kPnl">—</div><div class="dl flat" id="kPnlSub">по открытым позициям</div></div>
+    <div class="kpi"><div class="lb">PnL за 24 часа</div><div class="vl" id="kPnl24">—</div><div class="dl flat" id="kPnl24Sub">закрытые сделки</div></div>
+    <div class="kpi"><div class="lb">Позиции</div><div class="vl" id="kPos">—</div><div class="bar"><div id="kPosBar" style="width:0%"></div></div></div>
+    <div class="sec">Открытые позиции</div>
+    <div id="posBox"><div class="empty">Данные придут в чат бота</div></div>
+    <button class="btn btn-p" id="bStatus2" type="button">Обновить</button>
+    <div class="err" id="err2"></div>
+    <div class="note">Бот пришлёт разбор в Telegram — детали по сделкам видны там.</div>
+  </div>
+
+  <!-- PARAMS -->
+  <div class="panel" id="p-params">
+    <div class="sec">Текущие параметры</div>
+    <div id="paramBox"><div class="empty">Запрашиваю у бота…</div></div>
+    <button class="btn btn-p" id="bParams" type="button">🔄 Обновить параметры</button>
+    <a class="btn btn-s" href="https://azazel-settings-yz2uw75a.agent.mira.tg/" target="_blank" rel="noopener">⚙️ Изменить настройки</a>
+    <div class="err" id="err3"></div>
+    <div class="note">Параметры применяются в каждой торговой сессии. Меняются в разделе настроек.</div>
+  </div>
+
+  <div class="ts" id="ts2"></div>
+</div>
+
+<script>
+var tg=window.Telegram&&window.Telegram.WebApp;
+try{tg.ready();}catch(e){} try{tg.expand();}catch(e){} try{tg.setHeaderColor('#F4F5F7');}catch(e){}
+try{tg.BackButton.onClick(function(){go();});}catch(e){}
+
+var UID=0,NAME='';
+try{
+  var u=(tg&&tg.initDataUnsafe&&tg.initDataUnsafe.user)?tg.initDataUnsafe.user:null;
+  if(u){UID=u.id;NAME=u.first_name||u.username||'';}
+}catch(e){}
+
+var tabs=document.querySelectorAll('.tab');
+for(var i=0;i<tabs.length;i++){
+  tabs[i].onclick=function(){
+    for(var j=0;j<tabs.length;j++){tabs[j].classList.remove('on');}
+    this.classList.add('on');
+    var p=this.getAttribute('data-p');
+    var ps=document.querySelectorAll('.panel');
+    for(var k=0;k<ps.length;k++){ps[k].classList.remove('on');}
+    document.getElementById('p-'+p).classList.add('on');
+  };
+}
+
+function showErr(id,t){var e=document.getElementById(id);e.textContent=t;e.style.display='block';}
+function clearErr(id){var e=document.getElementById(id);if(e)e.style.display='none';}
+function go(){
+  try{if(tg&&tg.close)tg.close();else location.href='https://t.me/AzabotAi?start=menu';}
+  catch(e){location.href='https://t.me/AzabotAi?start=menu';}
+}
+function send(payload){
+  clearErr('err');clearErr('err2');clearErr('err3');
+  var id=(tg&&tg.initData)?tg.initData:'';
+  if(!id){
+    showErr('err','Mini App запущен вне Telegram — данные не передать. Открой бота и напиши /start');
+    try{if(tg&&tg.openTelegramLink)tg.openTelegramLink('https://t.me/AzabotAi?start=menu');}catch(e){}
+    return;
+  }
+  payload.init_data=id;
+  var ok=false;
+  try{if(tg&&tg.sendData){tg.sendData(JSON.stringify(payload));ok=true;}}catch(e){ok=false;}
+  if(ok){
+    var o=document.getElementById('ok');
+    o.style.display='block';
+    o.innerHTML='Отправлено боту — ответ придёт в чат.';
+    setTimeout(go,900);
+  } else {
+    showErr('err','Не удалось передать данные. Открой бота и напиши /start');
+    try{if(tg&&tg.openTelegramLink)tg.openTelegramLink('https://t.me/AzabotAi?start=menu');}catch(e){}
+  }
+}
+
+document.getElementById('bStart').onclick=function(){send({cmd:'start'});};
+document.getElementById('bReport').onclick=function(){send({cmd:'report'});};
+document.getElementById('bStatus').onclick=function(){send({cmd:'status'});};
+document.getElementById('bStatus2').onclick=function(){send({cmd:'status'});};
+document.getElementById('bKey').onclick=function(){send({cmd:'walt_key'});};
+document.getElementById('bParams').onclick=function(){
+  send({cmd:'params'});
+  document.getElementById('paramBox').innerHTML='<div class="empty">Запрашиваю у бота…</div>';
+};
+
+(function init(){
+  var s=document.getElementById('sub');
+  s.textContent=NAME?('Привет, '+NAME+' · автономный агент'):'Автономный торговый агент';
+  var ts=document.getElementById('ts'),ts2=document.getElementById('ts2');
+  var d=new Date();
+  var stamp=d.toLocaleString('ru-RU',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+  ts.textContent='v5 · '+stamp;
+  ts2.textContent='Azazel Trader · '+stamp;
+  if(!tg||!tg.initData){
+    document.getElementById('hint').style.display='block';
+    s.textContent='Открыто вне Telegram';
+  }
+  try{if(tg&&tg.BackButton)tg.BackButton.show();}catch(e){}
+})();
+</script>
+</body>
+</html>
