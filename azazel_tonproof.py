@@ -33,6 +33,14 @@ TON_CONNECT_PREFIX = b"ton-connect"
 DEFAULT_MAX_AGE = 600          # 10 минут
 DEFAULT_DOMAIN = "azazelm.com"
 
+# Dostupnye domeny: Mini App otdaetsya cherez Pages, no server zhivyot na
+# azazelm.com. Koshelek podpisyvaet proof tem domenom, gde otkrylas' Mini App,
+# poetomu prinimaem oba i otkazyvaem vsyu ostal'nuyu'.
+ALLOWED_DOMAINS = frozenset({
+    "azazelm.com",
+    "azazel-trader-yz2uw75a.agent.mira.tg",
+})
+
 # nonce: odnozagочное, zhivyot ogranicheno
 NONCE_TTL = 300
 
@@ -180,8 +188,9 @@ def verify_proof(proof, address_raw, expected_domain=None,
     domain = dom.get("value") or ""
     length_bytes = dom.get("lengthBytes")
     if expected_domain:
-        if domain != expected_domain:
-            return False, "domain ne sovpal: %r != %r" % (domain, expected_domain), None
+        allowed = expected_domain if isinstance(expected_domain, (set, frozenset, list, tuple)) else frozenset({expected_domain})
+        if domain not in allowed:
+            return False, "domain ne sovpal: %r != %r" % (domain, sorted(allowed)), None
     if "." not in domain:
         return False, "domain dolzhen soderzhat tochku", None
     if length_bytes is not None and int(length_bytes) != len(domain.encode("utf-8")):
