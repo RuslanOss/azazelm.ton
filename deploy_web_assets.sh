@@ -7,12 +7,13 @@
 set -uo pipefail
 
 echo "=== Azazel WEB-ASSETY DEPLOY ==="
-WEB_SHA="40e415734c96bb3ee8e4b4d4ec13a260e1e0a98e"
+WEB_SHA="98c695dc218909856ef5688467d90035fa118bc5"
 WEB_BASE="https://raw.githubusercontent.com/RuslanOss/azazelm.ton/${WEB_SHA}"
-WEB_FILES="web/app/assets/devil-256.jpg web/app/assets/devil-64.jpg"
+WEB_FILES="web/app/assets/devil-256.jpg web/app/assets/devil-64.jpg web/app/index.html"
 declare -A WEB_WANT=(
   ["devil-256.jpg"]="9c232574d3cdbdd0c10f0e0e77b7be9c21f0cbc54f47ccadba28dfc0091e7cc2"
   ["devil-64.jpg"]="80eb9a9bd42efead9269def7089803ef917e7374d1792d5d6e1761d42e603bed"
+  ["index.html"]="282ce7655a87e886b48a7a48ea9f16e6a2afc2a10fbaa682bd1c591f1649f712"
 )
 
 # 4.1 nayti katalog, v kotorm lezhit staryy ikonka
@@ -38,21 +39,27 @@ if [ -n "${WEBROOT}" ]; then
   # 4.2 bekap starogo
   WB="${WEBROOT}/backup_$(date +%Y%m%d_%H%M%S)"
   mkdir -p "${WB}"
-  cp -p "${WEBROOT}/assets/"*.jpg "${WB}/" 2>/dev/null && echo "    bekap: ${WB}"
+  cp -p "${WEBROOT}/assets/"*.jpg "${WB}/" 2>/dev/null
+  cp -p "${WEBROOT}/index.html" "${WB}/" 2>/dev/null
+  echo "    bekap: ${WB}"
   # 4.3 zagruzka
   WEBFAIL=0
   for f in ${WEB_FILES}; do
     name=$(basename "${f}")
-    if curl -fsSL --max-time 40 "${WEB_BASE}/${f}" -o "${WEBROOT}/assets/${name}.new"; then
-      mv -f "${WEBROOT}/assets/${name}.new" "${WEBROOT}/assets/${name}"
-      echo "    ${name} (${WEBROOT}/assets/${name} $(stat -c%s "${WEBROOT}/assets/${name}") B)"
+    dest="${WEBROOT}/assets/${name}"
+    [ "${name}" = "index.html" ] && dest="${WEBROOT}/index.html"
+    if curl -fsSL --max-time 40 "${WEB_BASE}/${f}" -o "${dest}.new"; then
+      mv -f "${dest}.new" "${dest}"
+      echo "    ${name} (${dest} $(stat -c%s "${dest}") B)"
     else
       echo "    OSHIBKA: ne skachalsya ${name}"; WEBFAIL=1
     fi
   done
   # 4.4 proverka sha256
   for name in "${!WEB_WANT[@]}"; do
-    GOT=$(sha256sum "${WEBROOT}/assets/${name}" 2>/dev/null | cut -d" " -f1)
+    target="${WEBROOT}/assets/${name}"
+    [ "${name}" = "index.html" ] && target="${WEBROOT}/index.html"
+    GOT=$(sha256sum "${target}" 2>/dev/null | cut -d" " -f1)
     if [ "${GOT}" != "${WEB_WANT[$name]}" ]; then
       echo "    OSHIBKA sha256: ${name}"; WEBFAIL=1
     else
