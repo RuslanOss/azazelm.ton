@@ -35,6 +35,10 @@ try:
     import azazel_initdata as _idm
 except Exception:
     _idm = None
+try:
+    import azazel_ton_approval as _apv
+except Exception:
+    _apv = None
 WALT_API_KEY = os.environ.get("WALT_API_KEY", "")
 WALT_API_URL = os.environ.get("WALT_API_URL", "https://walt.bot/api")
 PORT = int(os.environ.get("AZAZEL_API_PORT", "8787"))
@@ -206,6 +210,56 @@ def _tg_send(chat_id, text, buttons=None):
         return False
 
 
+
+def _user_walt_credentials(uid):
+    """Klyuch/sekret Walt polzovatelya iz lokalnogo JSON. -> (key, secret)."""
+    data_dir = os.environ.get("AZAZEL_DATA_DIR") or "/opt/azazel-data"
+    p = os.path.join(data_dir, "%s.json" % uid)
+    try:
+        with open(p, encoding="utf-8") as f:
+            j = json.load(f)
+    except Exception:
+        return "", ""
+    return (str(j.get("walt_key") or "").strip(),
+            str(j.get("walt_secret") or "").strip())
+
+
+def _execute_approved_order(uid, rec):
+    """Ispolnit' odobrennyy order cherez Walt API.
+
+    Plan stroit iz odobrennoy zayavki i ukhodit v tot zhe ispolnitel',
+    chto i avtotsikl. Nikogda ne brosaet isklyuchenie naruzhu.
+    """
+    order = rec.get("order") or {}
+    key, secret = _user_walt_credentials(uid)
+    if not key or not secret:
+        return {"ok": False, "error": "net klyucha Walt u polzovatelya"}
+    try:
+        here = os.path.dirname(os.path.abspath(__file__))
+        if here not in sys.path:
+            sys.path.insert(0, here)
+        import continuation_engine as ce
+    except Exception as e:
+        return {"ok": False, "error": "dvigok nedostupen: %s" % str(e)[:150]}
+    plan = {
+        "symbol": order.get("symbol"),
+        "side": order.get("side"),
+        "entry": float(order.get("entry") or 0),
+        "stop_price": float(order.get("stop_price") or 0),
+        "take_price": float(order.get("take_price") or 0),
+        "leverage": int(order.get("leverage") or 1),
+        "margin_usd": float(order.get("margin_usd") or 0),
+    }
+    try:
+        res = ce.execute_plan(plan, key=key, secret=secret)
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:250]}
+    if not isinstance(res, dict):
+        return {"ok": bool(res), "result": res}
+    return {"ok": bool(res.get("ok")), "error": res.get("error"),
+            "result": res.get("result")}
+
+
 def _ton_addr_raw(addr):
     """Privetitnyy adres TON (UQ../EQ..) -> raw '<wc>:<hex>'."""
     a = (addr or "").strip()
@@ -341,6 +395,38 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 self._json(500, {"error": str(e)})
             return
+        if self.path.startswith("/api/ton_order_pending"):
+            # Poslednyaya nedopodpisannaya zayavka polzovatelya.
+            # Nuzhna, chtoby Mini App podхватил zayavku sozdannuyu botom.
+            from urllib.parse import urlparse, parse_qs
+            q = parse_qs(urlparse(self.path).query)
+            init_data = (q.get("init_data") or [""])[0]
+            if _idm is None or not BOT_TOKEN:
+                self._json(503, {"error": "initdata module unavailable"})
+                return
+            ok, uid, reason = _idm.verify(init_data, BOT_TOKEN, max_age=86400)
+            if not ok:
+                self._json(401, {"error": "auth failed: " + str(reason)})
+                return
+            if _apv is None:
+                self._json(503, {"error": "модуль подтверждения недоступен"})
+                return
+            try:
+                pend = _apv.list_approvals(uid, only_pending=True)
+            except Exception as e:
+                self._json(500, {"error": str(e)[:150]})
+                return
+            if not pend:
+                self._json(200, {"ok": True, "pending": None})
+                return
+            rec = pend[0]
+            self._json(200, {"ok": True, "pending": {
+                "approval_id": rec.get("id"),
+                "nonce": rec.get("nonce"),
+                "order": rec.get("order"),
+                "order_hash": rec.get("order_hash"),
+            }})
+            return
         if self.path.startswith("/api/ton_nonce"):
             from urllib.parse import urlparse, parse_qs
             q = parse_qs(urlparse(self.path).query)
@@ -372,6 +458,12 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if self.path.startswith("/api/ton_connect"):
             self._handle_ton_connect()
+            return
+        if self.path.startswith("/api/ton_order_request"):
+            self._handle_ton_order_request()
+            return
+        if self.path.startswith("/api/ton_order_approve"):
+            self._handle_ton_order_approve()
             return
         self._json(404, {"error": "not found"})
 
@@ -470,8 +562,192 @@ class Handler(BaseHTTPRequestHandler):
         if not saved:
             self._json(500, {"error": "airtable: " + str(msg)})
             return
+        # lokalnoe sokhrnenie: nuzhno dlya proverki "koshelek podklyuchen"
+        # pri sozdanii zayavki na order
+        if _apv is not None:
+            _apv.save_wallet(uid, addr, pub or "", body.get("wallet_state_init") or "")
         log.info("ton_connect ok uid=%s addr=%s pub=%s", uid, addr, pub)
         self._json(200, {"ok": True, "address": addr, "public_key": pub})
+
+
+    # ---------- TON Connect: podtverzhdenie orderov ----------
+
+    def _auth_initdata(self, init_data):
+        """Proverit' podpis initData. -> (uid|None, error|None)."""
+        if not init_data:
+            return None, "net init_data"
+        if _idm is None or not BOT_TOKEN:
+            return None, "modul initdata nedostupen"
+        ok, uid, reason = _idm.verify(init_data, BOT_TOKEN, max_age=86400)
+        if not ok:
+            return None, "auth failed: " + str(reason)
+        return uid, None
+
+    def _post_body(self):
+        """Prochitat' i razobrat' telo POST. -> (body|None, error|None)."""
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+            if n <= 0 or n > 512 * 1024:
+                return None, "empty or too large body"
+            return json.loads(self.rfile.read(n).decode("utf-8")), None
+        except Exception as e:
+            return None, "bad json: " + str(e)[:80]
+
+    def _handle_ton_order_request(self):
+        """Sozdat' zayavku na podtverzhdenie ordera podpisyu koshelya.
+
+        Telo: {init_data, order:{symbol,side,margin_usd,leverage,
+                                 entry,stop_price,take_price}}
+        """
+        if _apv is None:
+            self._json(503, {"error": "модуль подтверждения недоступен"})
+            return
+        body, err = self._post_body()
+        if body is None:
+            self._json(400, {"error": err})
+            return
+        if not isinstance(body, dict):
+            self._json(400, {"error": "body must be an object"})
+            return
+        uid, err = self._auth_initdata(body.get("init_data") or "")
+        if uid is None:
+            self._json(401, {"error": err})
+            return
+        order = body.get("order") or {}
+        if not isinstance(order, dict):
+            self._json(400, {"error": "order must be an object"})
+            return
+        wal = _apv.get_wallet(uid)
+        if not wal.get("address"):
+            self._json(409, {"error": "кошелёк не подключён"})
+            return
+        rec, err = _apv.create_order_request(uid, order)
+        if rec is None:
+            self._json(400, {"error": err})
+            return
+        log.info("ton_order_request uid=%s %s %s margin=%.2f lev=%d",
+                 uid, rec["order"]["symbol"], rec["order"]["side"],
+                 rec["order"]["margin_usd"], rec["order"]["leverage"])
+        self._json(200, {
+            "ok": True,
+            "approval_id": rec["id"],
+            "nonce": rec["nonce"],
+            "order_hash": rec["order_hash"],
+            "order": rec["order"],
+            "expires_in": int(_apv.APPROVAL_TTL),
+        })
+
+    def _handle_ton_order_approve(self):
+        """Prinyat' podpis koshelya i ispolnit' order.
+
+        Telo: {init_data, approval_id, address, public_key,
+               wallet_state_init, ton_proof}
+        """
+        if _apv is None:
+            self._json(503, {"error": "модуль подтверждения недоступен"})
+            return
+        body, err = self._post_body()
+        if body is None:
+            self._json(400, {"error": err})
+            return
+        if not isinstance(body, dict):
+            self._json(400, {"error": "body must be an object"})
+            return
+        uid, err = self._auth_initdata(body.get("init_data") or "")
+        if uid is None:
+            self._json(401, {"error": err})
+            return
+        aid = str(body.get("approval_id") or "").strip()
+        rec = _apv.get_approval(uid, aid)
+        if not rec:
+            self._json(404, {"error": "заявка не найдена"})
+            return
+        if rec.get("status") == "executed":
+            self._json(409, {"error": "заявка уже исполнена"})
+            return
+        if rec.get("status") != "pending":
+            self._json(409, {"error": "заявка не в статусе ожидания: %s"
+                             % rec.get("status")})
+            return
+
+        wal = _apv.get_wallet(uid)
+        want = str(wal.get("address") or "")
+        got = str(body.get("address") or "").strip()
+        if not want:
+            self._json(409, {"error": "кошелёк не подключён"})
+            return
+        if got != want:
+            self._json(400, {"error": "адрес не совпадает с подключённым"})
+            return
+
+        raw = body.get("ton_proof") or body.get("proof") or ""
+        proof = raw if isinstance(raw, dict) else None
+        if proof is None:
+            try:
+                proof = json.loads(raw)
+            except Exception:
+                self._json(400, {"error": "cannot parse ton_proof"})
+                return
+        if not isinstance(proof, dict):
+            self._json(400, {"error": "ton_proof is not an object"})
+            return
+        pk = body.get("public_key") or body.get("publicKey")
+        if pk:
+            proof["public_key"] = pk
+        wsi = (body.get("wallet_state_init") or body.get("walletStateInit")
+               or body.get("state_init") or body.get("stateInit") or "")
+        if wsi:
+            proof["walletStateInit"] = wsi
+
+        try:
+            here = os.path.dirname(os.path.abspath(__file__))
+            if here not in sys.path:
+                sys.path.insert(0, here)
+            import azazel_tonproof as tp
+        except Exception:
+            self._json(500, {"error": "tonproof module unavailable"})
+            return
+
+        raw_addr = _ton_addr_raw(got)
+        good, why, pub = tp.verify_proof(proof, raw_addr,
+                                         expected_domain=tp.ALLOWED_DOMAINS)
+        if not good:
+            log.warning("ton_approve: proof rejected uid=%s: %s", uid, why)
+            self._json(400, {"error": "proof rejected: " + str(why)[:160]})
+            return
+
+        payload = proof.get("payload") or ""
+        if payload != rec.get("nonce"):
+            log.warning("ton_approve: payload mismatch uid=%s", uid)
+            self._json(400, {"error": "подпись относится к другому запросу"})
+            return
+        if not tp.consume_nonce(payload):
+            log.warning("ton_approve: nonce invalid/reused uid=%s", uid)
+            self._json(400, {"error": "nonce invalid or already used"})
+            return
+
+        rec["status"] = "approved"
+        rec["approved_at"] = time.time()
+        rec["address"] = got
+        rec["public_key"] = pub
+        _apv.save_approval(uid, rec)
+        try:
+            res = _execute_approved_order(uid, rec)
+        except Exception as e:
+            log.exception("ton_approve: execution failed uid=%s", uid)
+            rec["status"] = "approved"
+            rec["result"] = {"ok": False, "error": str(e)[:200]}
+            _apv.save_approval(uid, rec)
+            self._json(500, {"error": "исполнение не удалось: " + str(e)[:160]})
+            return
+        rec["status"] = "executed"
+        rec["executed_at"] = time.time()
+        rec["result"] = res
+        _apv.save_approval(uid, rec)
+        log.info("ton_approve executed uid=%s %s ok=%s",
+                 uid, rec["order"]["symbol"], res.get("ok"))
+        self._json(200, {"ok": True, "approval_id": aid, "result": res})
+
 
     def log_message(self, fmt, *a):
         try:

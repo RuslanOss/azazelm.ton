@@ -94,6 +94,10 @@ h1{font-size:21px;color:#221E19;margin-bottom:4px;letter-spacing:-.3px;font-weig
 .pos.neg .ppnl{color:#b3402f}
 .ppx{font-size:12px;opacity:.62}
 #kAcc{font-size:12px;opacity:.6;margin:2px 0 10px}
+
+.inp{width:100%;box-sizing:border-box;margin:6px 0;padding:10px;border:1px solid #D7DBE2;border-radius:10px;background:#fff;font-size:15px;color:#141821}
+.row{display:flex;gap:8px;margin:6px 0}
+.row .btn{flex:1}
 </style>
 </head>
 
@@ -192,6 +196,21 @@ h1{font-size:21px;color:#221E19;margin-bottom:4px;letter-spacing:-.3px;font-weig
     <button class="btn btn-s" id="bTon" type="button">&#128170; Подключить TON-кошелёк</button>
     <button class="btn btn-s" id="bTonSave" type="button">&#9989; Сохранить кошелёк</button>
     <div id="tonBox" style="display:none"></div>
+    <div class="sec">Подтверждение ордера подписью кошелька</div>
+    <div class="note">Ордер уходит на биржу только после того, как кошелёк подпишет его лично. Подпись проверяется на сервере, ордер исполняется по вашему ключу Walt.</div>
+    <input class="inp" id="oSym" placeholder="Символ: BTC" value="BTC">
+    <div class="row">
+      <button class="btn btn-s" id="oSideLong" type="button">&#128154; Лонг</button>
+      <button class="btn btn-s" id="oSideShort" type="button">&#128165; Шорт</button>
+    </div>
+    <input class="inp" id="oMargin" placeholder="Маржа, USD" value="20">
+    <input class="inp" id="oLev" placeholder="Плечо" value="5">
+    <input class="inp" id="oEntry" placeholder="Цена входа" value="">
+    <input class="inp" id="oStop" placeholder="Стоп" value="">
+    <input class="inp" id="oTake" placeholder="Тейк" value="">
+    <button class="btn btn-p" id="bOrder" type="button">&#128274; Запросить подтверждение</button>
+    <div id="ordBox" style="display:none"></div>
+    <div class="err" id="err4"></div>
     <a class="btn btn-s" href="https://azazelm.com/settings" target="_blank" rel="noopener">&#9881; Все настройки торговли</a>
     <div class="err" id="err3"></div>
     <div class="note">Параметры применяются в каждой торговой сессии. Меняются в разделе настроек.</div>
@@ -231,7 +250,7 @@ function go(){
   toChat('menu');
 }
 var BOT='https://t.me/AzabotAi';
-var API_BASE='';
+var API_BASE='https://azazelm.com';
 // Perevod v chat cherez deep-link: "/start <cmd>". Rabotaet vsegda,
 // dazhe esli web_app_data ne dostal do bota.
 function toChat(cmd){
@@ -354,7 +373,7 @@ var tonState = { ready:false, connected:false, address:'', proof:null, publicKey
 
 function tlog(m){ try{ console.log('[ton]', m); }catch(e){} }
 
-var API_BASE='';
+var API_BASE='https://azazelm.com';
 async function getNonce(){
   var id=(tg&&tg.initData)?tg.initData:'';
   var r=await fetch(API_BASE+'/api/ton_nonce?init_data='+encodeURIComponent(id),{credentials:'same-origin'});
@@ -504,7 +523,151 @@ document.getElementById('bTonSave').onclick=async function(){
   btn.disabled=false;
 };
 
+
+// ── Подтверждение ордера подписью кошелька ───────────────────────────
+var ordSide = 'long';
+var ordState = { req: null, busy: false };
+
+function setOrdSide(side){
+  ordSide = side;
+  var bl=document.getElementById('oSideLong'), bs=document.getElementById('oSideShort');
+  if(bl) bl.className = 'btn btn-s'+(side==='long'?' btn-p':'');
+  if(bs) bs.className = 'btn btn-s'+(side==='short'?' btn-p':'');
+}
+function num(id){
+  var e=document.getElementById(id);
+  if(!e) return 0;
+  var v=parseFloat(String(e.value||'').replace(',','.'));
+  return isNaN(v)?0:v;
+}
+function ordRender(){
+  var box=document.getElementById('ordBox');
+  if(!box) return;
+  var r=ordState.req;
+  if(!r){ box.style.display='none'; box.innerHTML=''; return; }
+  var o=r.order||{};
+  var h='<div class="sec">Заявка #'+String(r.approval_id).slice(0,8)+'</div>'
+    +'<div class="note">'+String(o.symbol||'')+' · '+(o.side==='long'?'&#128154; Лонг':'&#128165; Шорт')
+    +' · маржа $'+String(o.margin_usd||0)+' · плечо '+String(o.leverage||1)+'x</div>';
+  if(o.entry) h+='<div class="note">Вход '+String(o.entry)+' · стоп '+String(o.stop_price||0)+' · тейк '+String(o.take_price||0)+'</div>';
+  h+='<button class="btn btn-p" id="bSign" type="button">&#9998; Подписать кошельком</button>';
+  h+='<button class="btn btn-s" id="bCancelOrd" type="button">Отмена</button>';
+  box.style.display='block'; box.innerHTML=h;
+  var bs=document.getElementById('bSign');
+  if(bs) bs.onclick=doSignOrder;
+  var bc=document.getElementById('bCancelOrd');
+  if(bc) bc.onclick=function(){ ordState.req=null; ordRender(); };
+}
+async function loadPendingOrder(){
+  var id=(tg&&tg.initData)?tg.initData:'';
+  if(!id) return;
+  try{
+    var r=await fetch(API_BASE+'/api/ton_order_pending?init_data='+encodeURIComponent(id),{credentials:'same-origin'});
+    if(!r.ok) return;
+    var j=null; try{ j=await r.json(); }catch(err){ return; }
+    if(!j||!j.pending) return;
+    // Esli uzhe pokazan novaya zayavka - ne pereтираem staruyu
+    if(ordState.req && ordState.req.approval_id===j.pending.approval_id) return;
+    ordState.req=j.pending;
+    ordRender();
+  }catch(e){}
+}
+
+async function doRequestOrder(){
+  if(ordState.busy) return;
+  var btn=document.getElementById('bOrder');
+  var e=document.getElementById('err4');
+  var id=(tg&&tg.initData)?tg.initData:'';
+  var body={init_data:id, order:{
+    symbol:String((document.getElementById('oSym')||{}).value||'').trim().toUpperCase(),
+    side:ordSide,
+    margin_usd:num('oMargin'),
+    leverage:Math.round(num('oLev')),
+    entry:num('oEntry'), stop_price:num('oStop'), take_price:num('oTake')}};
+  if(!body.order.symbol){ if(e){e.textContent='Укажи символ.';e.style.display='block';} return; }
+  if(!(body.order.margin_usd>0)){ if(e){e.textContent='Укажи маржу.';e.style.display='block';} return; }
+  ordState.busy=true; if(btn) btn.disabled=true;
+  if(e){ e.style.display='none'; }
+  try{
+    var r=await fetch(API_BASE+'/api/ton_order_request',{
+      method:'POST', credentials:'same-origin',
+      headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+    var j=null; try{ j=await r.json(); }catch(err){}
+    if(!r.ok) throw new Error((j&&j.error)||('HTTP '+r.status));
+    ordState.req=j; ordRender();
+  }catch(ex){
+    if(e){ e.style.display='block'; e.textContent='Не получилось: '+(ex&&ex.message||ex); }
+  }
+  ordState.busy=false; if(btn) btn.disabled=false;
+}
+async function doSignOrder(){
+  if(!ordState.req||ordState.busy) return;
+  var r=ordState.req;
+  var e=document.getElementById('err4');
+  ordState.busy=true;
+  try{
+    // 1) свежая подпись под ЭТОТ заказ: SDK 5 не даёт переподключиться,
+    //    поэтому разрываем сессию и подключаемся заново с nonce заявки
+    var nonce=r.nonce;
+    var c=await tonConnect();
+    if(c.connected){ try{ await c.disconnect(); }catch(e2){} }
+    var list=await listWallets();
+    if(!list.length) throw new Error('Нет кошельков с мостом');
+    var w=pickWallet(list);
+    var c2=await tonConnect();
+    await c2.connect(w, { request:{ tonProof: nonce } });
+    // 2) достаём proof из ответа connect
+    var proof=null, addr='', pub='', wsi='';
+    try{
+      var acc=c2.wallet && c2.wallet.account;
+      if(acc){ addr=acc.address||''; pub=acc.publicKey||''; wsi=acc.walletStateInit||''; }
+      var tp=c2.wallet && c2.wallet.connectItems && c2.wallet.connectItems.tonProof;
+      if(tp && tp.proof) proof=tp.proof;
+    }catch(e3){}
+    if(!proof) throw new Error('Кошелёк не вернул подпись');
+    // 3) шлём подпись на сервер — там проверка и исполнение
+    var res=await fetch(API_BASE+'/api/ton_order_approve',{
+      method:'POST', credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({init_data:(tg&&tg.initData)?tg.initData:'',
+        approval_id:r.approval_id, address:addr, public_key:pub,
+        wallet_state_init:wsi, ton_proof:proof})});
+    var j=null; try{ j=await res.json(); }catch(err){}
+    if(!res.ok) throw new Error((j&&j.error)||('HTTP '+res.status));
+    var rr=(j&&j.result)||{};
+    ordState.req=null;
+    var box=document.getElementById('ordBox');
+    if(box){
+      box.style.display='block';
+      box.innerHTML='<div class="ok-box" style="display:block">'+(rr.ok?'&#9989; Ордер исполнен':'&#9888; Не исполнен')+
+        ' — '+String(r.order.symbol)+' '+(r.order.side==='long'?'&#128154;':'')+String(r.order.side)+'</div>'+
+        (rr.error?'<div class="err" style="display:block">'+String(rr.error)+'</div>':'');
+    }
+  }catch(ex){
+    if(e){ e.style.display='block'; e.textContent='Подпись не прошла: '+(ex&&ex.message||ex); }
+  }
+  ordState.busy=false;
+}
+(function(){
+  var l=document.getElementById('oSideLong'), sh=document.getElementById('oSideShort');
+  if(l) l.onclick=function(){ setOrdSide('long'); };
+  if(sh) sh.onclick=function(){ setOrdSide('short'); };
+  var b=document.getElementById('bOrder');
+  if(b) b.onclick=doRequestOrder;
+  setOrdSide('long');
+})();
+
 document.getElementById('bTon').onclick=doTonConnect;
+
+// Podxvat zayavki, sozdannoy botom v chate
+(function(){
+  try{ loadPendingOrder(); }catch(e){}
+  document.addEventListener('click', function(ev){
+    var t = ev.target && ev.target.closest ? ev.target.closest('.tab') : null;
+    if(!t) return;
+    if(t.getAttribute('data-p')==='params'){ try{ loadPendingOrder(); }catch(e){} }
+  });
+})();
 </script>
 
 <div class="tabbar"><div class="tabs">

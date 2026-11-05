@@ -4,6 +4,10 @@
 # Tolko standartnaya biblioteka Python 3.9+. Bez zavisimostey.
 import os, json, time, urllib.request, urllib.error, urllib.parse, datetime, sys, logging
 import socket, ssl, http.client, signal
+try:
+    import azazel_ton_approval as _apv
+except Exception:
+    _apv = None
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("azabot")
@@ -436,6 +440,62 @@ def cmd_app(chat_id, uid):
         [("Открыть терминал", APP_URL, "web_app")])
 
 
+def cmd_order(chat_id, uid, args=""):
+    """Zayavka na order s podtverzhdeniem podpisyu koshelyka.
+
+    Format: /order BTC long 20 5 [entry stop take]
+    Bot sozdaet zayavku i vydast knopku Mini App: tam koshelyak podpishet
+    order svoyim kluchom, posle chego server ispolnit ego na Walt.
+    """
+    if _apv is None:
+        return send(chat_id, "Модуль подтверждения недоступен. Попробуй позже.")
+    wal = _apv.get_wallet(uid)
+    if not wal.get("address"):
+        return send(chat_id, "Сначала подключи кошелёк — в Mini App, раздел «Параметры». "
+            "Без него ордер нечем подписать.")
+    parts = (args or "").split()
+    if len(parts) < 4:
+        return send(chat_id,
+            "<b>Формат</b>\n<code>/order BTC long 20 5</code>\n\n"
+            + "<code>символ сторона маржа плечо [вход стоп тейк]</code>\n\n"
+            + "Например: <code>/order BTC long 20 5 80000 79000 83000</code>\n"
+            + "Маржа и плечо обязательны; вход/стоп/тейк — если знаешь заранее, "
+            + "иначе проставлю по правилам твоих параметров.")
+    sym = parts[0].upper()
+    side = parts[1].lower()
+    if side in ("л", "long", "покупка", "buy"):
+        side = "long"
+    elif side in ("ш", "short", "продажа", "sell"):
+        side = "short"
+    try:
+        margin = float(parts[2])
+        lev = int(float(parts[3]))
+    except (TypeError, ValueError):
+        return send(chat_id, "Маржа и плечо — числами. Например: <code>/order BTC long 20 5</code>")
+    order = {"symbol": sym, "side": side, "margin_usd": margin, "leverage": lev,
+             "entry": 0, "stop_price": 0, "take_price": 0}
+    if len(parts) >= 7:
+        try:
+            order["entry"] = float(parts[4])
+            order["stop_price"] = float(parts[5])
+            order["take_price"] = float(parts[6])
+        except (TypeError, ValueError):
+            return send(chat_id, "Вход, стоп и тейк — числами.")
+    rec, err = _apv.create_order_request(uid, order)
+    if not rec:
+        return send(chat_id, "Не получилось создать заявку: " + str(err))
+    o = rec["order"]
+    send_terminal_kb(chat_id)
+    return send(chat_id,
+        "<b>🔒 Заявка на ордер создана</b>\n\n"
+        + str(o["symbol"]) + " · " + ("&#128154; Лонг" if o["side"] == "long" else "&#128165; Шорт")
+        + " · маржа $" + str(o["margin_usd"]) + " · плечо " + str(o["leverage"]) + "x\n\n"
+        + "Ордер уйдёт на биржу только после твоей подписи кошельком. "
+        + "Открой терминал и нажми «Подписать кошельком».\n\n"
+        + "Заявка живёт 15 минут.",
+        [("Подписать ордер", APP_URL, "web_app")])
+
+
 def cmd_params(chat_id, uid):
     res = db_query_uid(USERS_DB, uid)
     rows = (res or {}).get("records", [])
@@ -629,6 +689,8 @@ def text_handler(chat_id, uid, txt):
         if low in ("параметры", "мои параметры", "/params"): return cmd_params(chat_id, uid)
         if low in ("цикл", "/cycle", "прогон"): return cmd_cycle(chat_id, uid)
         if low in ("метрики", "/metrics"): return cmd_metrics_data(chat_id, uid)
+        if low.startswith("/order") or low in ("ордер", "заявка", "/заявка"):
+            return cmd_order(chat_id, uid, txt.strip()[len("/order"):].strip() if low.startswith("/order") else "")
         if low in ("настройки", "/settings"): return cmd_settings_page(chat_id, uid)
         if low in ("статус", "/status"): return cmd_status(chat_id, uid)
         if low in ("статистика", "/report", "отчёт", "отчет"): return cmd_report(chat_id, uid)
