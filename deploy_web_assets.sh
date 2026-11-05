@@ -3,17 +3,18 @@
 # Azazel - WEB-ASSETS DEPLOY (Mini App icons).
 # Vstaetsya v serialnuyu konsol Timeweb. Rabotaet BEZ SSH.
 # Menyaet tolko web/app/assets/*.png + web/app/index.html.
+# Ikonka: nochnoe zvezdnoe nebo + belyj siluet (25adbf7b).
 # ============================================================
 set -uo pipefail
 
 echo "=== Azazel WEB-ASSETS DEPLOY ==="
-WEB_SHA="2359fc17151b7069000e21e31fe5ab1997102721"
+WEB_SHA="25adbf7b7c77d5e8d9b5bf635148c3d3529de617"
 WEB_BASE="https://raw.githubusercontent.com/RuslanOss/azazelm.ton/${WEB_SHA}"
 WEB_FILES="web/app/assets/devil-256.png web/app/assets/devil-64.png web/app/index.html"
 declare -A WEB_WANT=(
-  ["devil-256.png"]="53ececb11083ca50758854dff7cc987e7efe72b5d5451969a34eef8e8cda808a"
-  ["devil-64.png"]="de366d0fd8c4978b0d82887aa7abb8305358bfc253fb524d18eace4656f3e08d"
-  ["index.html"]="f73aaac5cf0944eeb8671a0bcb4a692b86df80d0be764a8f1d9d64f840bf970c"
+  ["devil-256.png"]="b656fbbca418668b83838ef37232f4415f150e336371097fe32456875f2e31ad"
+  ["devil-64.png"]="9264fe5c200ea67a0545f6f7667e28124add1419239953325038f1b16295e5c0"
+  ["index.html"]="29733bbe26b6aaf88f67f78c1ea5e9022cb7c919daf8bcfc2da80fc8591b68a2"
 )
 
 # 4.1 nayti katalog s assetami
