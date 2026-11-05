@@ -295,9 +295,10 @@ var tonState = { ready:false, connected:false, address:'', proof:null, publicKey
 
 function tlog(m){ try{ console.log('[ton]', m); }catch(e){} }
 
+var API_BASE='';
 async function getNonce(){
   var id=(tg&&tg.initData)?tg.initData:'';
-  var r=await fetch('/api/ton_nonce?init_data='+encodeURIComponent(id),{credentials:'same-origin'});
+  var r=await fetch(API_BASE+'/api/ton_nonce?init_data='+encodeURIComponent(id),{credentials:'same-origin'});
   if(!r.ok){ throw new Error('nonce: HTTP '+r.status); }
   var j=await r.json();
   if(!j||!j.nonce) throw new Error('nonce: empty');
@@ -371,13 +372,28 @@ async function doTonConnect(){
 }
 
 // Кнопка "Сохранить кошелёк" — отправляет боту proof + public_key
-document.getElementById('bTonSave').onclick=function(){
+document.getElementById('bTonSave').onclick=async function(){
   if(!tonState.proof){ showErr('err','Сначала подключи кошелёк'); return; }
-  send({ cmd:'ton_connect',
-         address: tonState.address,
-         public_key: tonState.publicKey,
-         wallet_state_init: tonState.walletStateInit,
-         ton_proof: tonState.proof });
+  var btn=this; btn.disabled=true;
+  var o=document.getElementById('ok'); var e=document.getElementById('err');
+  try{
+    var id=(tg&&tg.initData)?tg.initData:'';
+    var r=await fetch(API_BASE+'/api/ton_connect',{
+      method:'POST', credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ init_data:id,
+        address: tonState.address,
+        public_key: tonState.publicKey,
+        wallet_state_init: tonState.walletStateInit,
+        ton_proof: tonState.proof })});
+    var j=null; try{ j=await r.json(); }catch(err){}
+    if(!r.ok){ throw new Error((j&&j.error)||('HTTP '+r.status)); }
+    if(e){ e.style.display='none'; }
+    if(o){ o.style.display='block'; o.textContent='Кошелёк сохранён: '+String(j&&j.address||tonState.address).slice(0,10)+'…'; }
+  }catch(ex){
+    if(e){ e.style.display='block'; e.textContent='Не сохранилось: '+(ex&&ex.message||ex); }
+  }
+  btn.disabled=false;
 };
 
 document.getElementById('bTon').onclick=doTonConnect;

@@ -27,8 +27,14 @@ SENSITIVE_COMMANDS = frozenset({
 })
 
 
-def build_check_string(params, exclude=("hash", "signature")):
-    """Sbornaya stroka Telegram: k=v, otsortirovanno po klyuchu, cherez \n."""
+def build_check_string(params, exclude=("hash",)):
+    """Sbornaya stroka Telegram: k=v, otsortirovanno po klyuchu, cherez \n.
+
+    VAZHNO: iz stroki isklyuchaetsya TOL'KO "hash".
+    Pole "signature" (podpis Telegram) v check-string VKHODIT i dolzhno
+    ostatsya na svoem meste. Esli isklyuchit' ego - HMAC ne sojdetetsya
+    i lyuboy initData budet otklonyatsya s 401.
+    """
     parts = []
     for key, value in sorted(params):
         if key in exclude:

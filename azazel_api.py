@@ -28,6 +28,8 @@ STATE_FILE = os.path.join(BASE_DIR, "autotrading_config.json")
 AIRTABLE_TOKEN = os.environ.get("AIRTABLE_TOKEN", "")
 AIRTABLE_BASE_ID = os.environ.get("AIRTABLE_BASE_ID", "") or "app2PXtG16d227eoJ"
 AIRTABLE_USERS_TABLE = os.environ.get("AIRTABLE_USERS_TABLE", "") or "tbl9q101sD0zmvrXx"
+AIRTABLE_EVENTS_TABLE = os.environ.get("AIRTABLE_EVENTS_TABLE", "") or "tbl19AGwivPnURT5L"
+ADMIN_ID = int(os.environ.get("ADMIN_TG_ID") or 0)
 BOT_TOKEN = os.environ.get("AZABOT_TOKEN", "")
 try:
     import azazel_initdata as _idm
@@ -146,6 +148,123 @@ def walt_snapshot():
         return None
 
 
+# ---------------- TON Connect: zapis koshelyka ----------------
+
+def _airtable(method, path, body=None):
+    """Airtable: GET/PATCH/POST. vozvrashchaet (status, parsed) ili (0, None)."""
+    if not AIRTABLE_TOKEN:
+        return 0, None
+    try:
+        payload = None if body is None else json.dumps(body, ensure_ascii=False).encode("utf-8")
+        req = urllib.request.Request(
+            "https://api.airtable.com/v0" + path, method=method, data=payload,
+            headers={"Authorization": "Bearer " + AIRTABLE_TOKEN,
+                     "Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=25) as r:
+            return r.status, json.loads(r.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        try:
+            return e.code, json.loads(e.read().decode("utf-8", "replace"))
+        except Exception:
+            return e.code, None
+    except Exception as e:
+        log.warning("Airtable %s %s: %s", method, path, e)
+        return 0, None
+
+
+def _at_query_uid(table, uid, page_size=1):
+    from urllib.parse import quote as _q
+    flt = _q("{Telegram ID} = " + str(uid), safe="")
+    st, d = _airtable("GET", "/" + AIRTABLE_BASE_ID + "/" + table
+                      + "?filterByFormula=" + flt + "&maxRecords=" + str(page_size))
+    if st != 200 or not isinstance(d, dict):
+        return []
+    return d.get("records") or []
+
+
+def _tg_send(chat_id, text, buttons=None):
+    """Otpravka soobshcheniya v Telegram. True/False."""
+    if not BOT_TOKEN or not chat_id:
+        return False
+    payload = {"chat_id": chat_id, "text": text, "parse_mode": "HTML",
+               "disable_web_page_preview": True}
+    if buttons:
+        rows = []
+        for label, data in buttons:
+            rows.append([{"text": label, "callback_data": data}])
+        payload["reply_markup"] = {"inline_keyboard": rows}
+    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    try:
+        req = urllib.request.Request(
+            "https://api.telegram.org/bot" + BOT_TOKEN + "/sendMessage",
+            method="POST", data=body,
+            headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=25) as r:
+            return json.loads(r.read().decode("utf-8")).get("ok", False)
+    except Exception as e:
+        log.warning("tg_send failed: %s", e)
+        return False
+
+
+def _ton_addr_raw(addr):
+    """Privetitnyy adres TON (UQ../EQ..) -> raw '<wc>:<hex>'."""
+    a = (addr or "").strip()
+    if not a:
+        return a
+    if ":" in a:
+        return a
+    try:
+        import base64
+        from ton_core.crypto import crc16
+        if len(a) != 48:
+            return a
+        raw = base64.urlsafe_b64decode(a + "=" * (-len(a) % 4))
+        if len(raw) != 36:
+            return a
+        if raw[0] not in (0x11, 0x01, 0x51):
+            return a
+        calc = crc16(raw[:34])
+        if isinstance(calc, bytes):
+            calc = int.from_bytes(calc, "big")
+        if calc != int.from_bytes(raw[34:36], "big"):
+            return a
+        wc = -1 if raw[1] == 0xFF else raw[1]
+        return "%d:%s" % (wc, raw[2:34].hex())
+    except Exception:
+        return a
+
+
+def _ton_log_event(kind, uid, name, details=""):
+    import datetime
+    fields = {
+        "Событие": kind,
+        "Тип": "активация",
+        "Дата": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "Пользователь": name or "",
+        "Telegram ID": uid,
+        "Источник": "miniapp",
+        "Детали": (details or "")[:1900],
+    }
+    st, _ = _airtable("POST", "/" + AIRTABLE_BASE_ID + "/" + AIRTABLE_EVENTS_TABLE,
+                      {"records": [{"fields": fields}]})
+    return st in (200, 201)
+
+
+def _ton_save_wallet(uid, addr, name=""):
+    """Zapisyvaet koshelek v Airtable. vozvrashchaet (ok, message)."""
+    rows = _at_query_uid(AIRTABLE_USERS_TABLE, uid, 1)
+    if rows:
+        rec_id = rows[0].get("id")
+        st, _ = _airtable("PATCH", "/" + AIRTABLE_BASE_ID + "/" + AIRTABLE_USERS_TABLE
+                          + "/" + str(rec_id), {"fields": {"Кошелёк Walt": addr}})
+        if st not in (200, 201):
+            return False, "Airtable: %s" % st
+    _ton_log_event("кошелёк", uid, name, addr)
+    if ADMIN_ID:
+        _tg_send(ADMIN_ID, "Кошелёк подключён: %s -> %s" % (name or str(uid), addr))
+    return True, "ok"
+
+
 def build(uid):
     d = load_state()
     user = airtable_user(uid)
@@ -185,7 +304,16 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_OPTIONS(self):
-        self._json(204, {})
+        body = b""
+        self.send_response(204)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
 
     def do_GET(self):
         if self.path.startswith("/api/metrics"):
@@ -240,6 +368,110 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, {"ok": True, "time": time.strftime("%Y-%m-%d %H:%M:%S")})
             return
         self._json(404, {"error": "not found"})
+
+    def do_POST(self):
+        if self.path.startswith("/api/ton_connect"):
+            self._handle_ton_connect()
+            return
+        self._json(404, {"error": "not found"})
+
+    def _handle_ton_connect(self):
+        """Prinyat koshelyka ot Mini App: init_data (podpis) + ton_proof.
+
+        Rabotaet bez web_app_data: front shlet POST napryamuyu.
+        Dostup tol'ko po podpisi initData, uid beretsya iz nee.
+        """
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+            if n <= 0 or n > 512 * 1024:
+                self._json(400, {"error": "empty or too large body"})
+                return
+            body = json.loads(self.rfile.read(n).decode("utf-8"))
+        except Exception as e:
+            self._json(400, {"error": "bad json: %s" % str(e)[:80]})
+            return
+        if not isinstance(body, dict):
+            self._json(400, {"error": "body must be an object"})
+            return
+
+        init_data = body.get("init_data") or ""
+        if not init_data:
+            self._json(401, {"error": "no init_data"})
+            return
+        if _idm is None or not BOT_TOKEN:
+            self._json(503, {"error": "initdata module unavailable"})
+            return
+        ok, uid, reason = _idm.verify(init_data, BOT_TOKEN, max_age=86400)
+        if not ok:
+            log.warning("ton_connect: init_data rejected: %s", reason)
+            self._json(401, {"error": "auth failed: " + str(reason)})
+            return
+
+        addr = (body.get("address") or body.get("wallet") or "").strip()
+        if not addr:
+            self._json(400, {"error": "no address"})
+            return
+        raw_addr = _ton_addr_raw(addr)
+        if not raw_addr or ":" not in raw_addr:
+            self._json(400, {"error": "bad address"})
+            return
+
+        raw = body.get("ton_proof") or body.get("proof") or ""
+        if isinstance(raw, dict):
+            proof = raw
+        else:
+            try:
+                proof = json.loads(raw)
+            except Exception:
+                self._json(400, {"error": "cannot parse ton_proof"})
+                return
+        if not isinstance(proof, dict):
+            self._json(400, {"error": "ton_proof is not an object"})
+            return
+
+        pk = body.get("public_key") or body.get("publicKey")
+        if pk:
+            proof["public_key"] = pk
+        wsi = (body.get("wallet_state_init") or body.get("walletStateInit")
+               or body.get("state_init") or body.get("stateInit") or "")
+        if wsi:
+            proof["walletStateInit"] = wsi
+        if not wsi:
+            self._json(400, {"error": "no walletStateInit"})
+            return
+
+        try:
+            here = os.path.dirname(os.path.abspath(__file__))
+            if here not in sys.path:
+                sys.path.insert(0, here)
+            import azazel_tonproof as tp
+        except Exception as e:
+            log.exception("azazel_tonproof unavailable: %s", e)
+            self._json(500, {"error": "tonproof module unavailable"})
+            return
+
+        good, why, pub = tp.verify_proof(proof, raw_addr,
+                                         expected_domain=tp.ALLOWED_DOMAINS)
+        if not good:
+            log.warning("ton_connect: proof rejected uid=%s: %s", uid, why)
+            self._json(400, {"error": "proof rejected: " + str(why)[:160]})
+            return
+        nonce = proof.get("payload") or ""
+        if nonce and not tp.consume_nonce(nonce):
+            log.warning("ton_connect: nonce invalid/reused uid=%s", uid)
+            self._json(400, {"error": "nonce invalid or already used"})
+            return
+
+        name = ""
+        rows = _at_query_uid(AIRTABLE_USERS_TABLE, uid, 1)
+        if rows:
+            name = str((rows[0].get("fields") or {}).get("Name") or "")
+        saved, msg = _ton_save_wallet(uid, addr, name)
+        if not saved:
+            self._json(500, {"error": "airtable: " + str(msg)})
+            return
+        log.info("ton_connect ok uid=%s addr=%s pub=%s", uid, addr, pub)
+        self._json(200, {"ok": True, "address": addr, "public_key": pub})
 
     def log_message(self, fmt, *a):
         try:
