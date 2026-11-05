@@ -37,74 +37,22 @@ done
 
 echo "[4/10] web-assety (ikonka Mini App)"
 if [ "${ONLY_WEB:-0}" = "1" ]; then echo "    rezhim ONLY_WEB=1 - tolko web-assety"; fi
-WEB_SHA="40e415734c96bb3ee8e4b4d4ec13a260e1e0a98e"
-WEB_BASE="https://raw.githubusercontent.com/RuslanOss/azazelm.ton/${WEB_SHA}"
-WEB_FILES="web/app/assets/devil-256.jpg web/app/assets/devil-64.jpg"
-declare -A WEB_WANT=(
-  ["devil-256.jpg"]="9c232574d3cdbdd0c10f0e0e77b7be9c21f0cbc54f47ccadba28dfc0091e7cc2"
-  ["devil-64.jpg"]="80eb9a9bd42efead9269def7089803ef917e7374d1792d5d6e1761d42e603bed"
-)
-
-# 4.1 nayti katalog, v kotorm lezhit staryy ikonka
-WEBROOT="${WEBROOT_OVERRIDE:-}"
-if [ -z "${WEBROOT}" ]; then
-  for c in $(grep -rhoP 'root\s+\K[^;]+' /etc/nginx/sites-enabled/ /etc/nginx/conf.d/ 2>/dev/null | sort -u); do
-    if [ -f "${c}/app/assets/devil-256.jpg" ]; then WEBROOT="${c}/app"; break; fi
-    if [ -f "${c}/assets/devil-256.jpg" ]; then WEBROOT="${c}"; break; fi
-  done
-fi
-if [ -z "${WEBROOT}" ]; then
-  FOUND=$(find /var/www /opt /srv /home -name 'devil-256.jpg' 2>/dev/null | head -1)
-  if [ -n "${FOUND}" ]; then WEBROOT="$(dirname "$(dirname "${FOUND}")")"; fi
-fi
-if [ -z "${WEBROOT}" ] || [ ! -d "${WEBROOT}/assets" ]; then
-  echo "    OSHIBKA: ne nashel katalog s assets/ - ukazhi WEBROOT vruchnuyu"
-  WEBROOT=""
+# Ikonka - belyj silujet v PNG. Vsyu logiku (WEBROOT, sha256, ochistka staryh JPEG,
+# nginx reload, live-probe) derzhit otdelnyy skript, zdes zovem ego.
+WEBASSETS_SHA="927352aef396daad32785bc1dd45cd0b491c866b"
+WEBASSETS_BASE="https://raw.githubusercontent.com/RuslanOss/azazelm.ton/${WEBASSETS_SHA}"
+if curl -fsSL --max-time 40 "${WEBASSETS_BASE}/deploy_web_assets.sh" -o /tmp/_deploy_web_assets.sh; then
+  chmod +x /tmp/_deploy_web_assets.sh
+  bash /tmp/_deploy_web_assets.sh || echo "    VNIHMANIE: web-assety s oshibkami"
 else
-  echo "    WEBROOT: ${WEBROOT}"
-fi
-
-if [ -n "${WEBROOT}" ]; then
-  # 4.2 bekap starogo
-  WB="${WEBROOT}/backup_$(date +%Y%m%d_%H%M%S)"
-  mkdir -p "${WB}"
-  cp -p "${WEBROOT}/assets/"*.jpg "${WB}/" 2>/dev/null && echo "    bekap: ${WB}"
-  # 4.3 zagruzka
-  WEBFAIL=0
-  for f in ${WEB_FILES}; do
-    name=$(basename "${f}")
-    if curl -fsSL --max-time 40 "${WEB_BASE}/${f}" -o "${WEBROOT}/assets/${name}.new"; then
-      mv -f "${WEBROOT}/assets/${name}.new" "${WEBROOT}/assets/${name}"
-      echo "    ${name} (${WEBROOT}/assets/${name} $(stat -c%s "${WEBROOT}/assets/${name}") B)"
-    else
-      echo "    OSHIBKA: ne skachalsya ${name}"; WEBFAIL=1
-    fi
-  done
-  # 4.4 proverka sha256
-  for name in "${!WEB_WANT[@]}"; do
-    GOT=$(sha256sum "${WEBROOT}/assets/${name}" 2>/dev/null | cut -d" " -f1)
-    if [ "${GOT}" != "${WEB_WANT[$name]}" ]; then
-      echo "    OSHIBKA sha256: ${name}"; WEBFAIL=1
-    else
-      echo "    ok: ${name}"
-    fi
-  done
-  # 4.5 otvergai nginx i proverka cherez lokalnyy host
-  nginx -t >/dev/null 2>&1 && { systemctl reload nginx 2>/dev/null && echo "    nginx reload: ok"; } || echo "    VNIHMANIE: nginx reload ne udalsya"
-  sleep 2
-  LOC=$(curl -fsS --max-time 15 -H "Host: azazelm.com" "http://127.0.0.1/app/assets/devil-256.jpg" -o /tmp/_w.jpg 2>/dev/null && sha256sum /tmp/_w.jpg | cut -d" " -f1)
-  if [ "${LOC}" = "${WEB_WANT[devil-256.jpg]}" ]; then
-    echo "    PROVERKA: server otdaet novuyu ikonku"
-  else
-    echo "    VNIHMANIE: server otdaet staruyu ikonku (nginx root mozhet byt drugoy)"
-  fi
-  [ ${WEBFAIL} -ne 0 ] && echo "    VNIHMANIE: web-assety s chastichnymi oshibkami"
+  echo "    OSHIBKA: ne skachalsya deploy_web_assets.sh"
 fi
 
 if [ "${ONLY_WEB:-0}" = "1" ]; then
-  echo "=== WEB-ASSETY DONE ==="
+  echo "=== WEB-ASSETS DONE ==="
   exit 0
 fi
+
 
 echo "[5/11] proverka sha256"
 declare -A WANT=(
