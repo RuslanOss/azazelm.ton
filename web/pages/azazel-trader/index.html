@@ -84,6 +84,16 @@ h1{font-size:21px;color:#221E19;margin-bottom:4px;letter-spacing:-.3px;font-weig
 .glass-note{font-size:11px;color:#8A7F6D;text-align:center;margin-top:12px;line-height:1.5}
 
 @media (min-width:760px){.card{background:rgba(255,255,255,.30)}.kpi{background:rgba(255,255,255,.26)}.tabs{background:rgba(255,255,255,.34)}}
+
+.pos{background:rgba(255,255,255,.72);border:1px solid rgba(0,0,0,.07);border-radius:14px;
+  padding:12px 14px;margin:8px 0;box-shadow:0 1px 2px rgba(0,0,0,.04)}
+.pos.neg{border-color:rgba(214,69,69,.35);background:rgba(255,244,244,.8)}
+.psym{font-weight:700;font-size:15px;letter-spacing:.2px}
+.ppnl{font-size:19px;font-weight:800;margin:4px 0 2px}
+.pos:not(.neg) .ppnl{color:#0f7a4a}
+.pos.neg .ppnl{color:#b3402f}
+.ppx{font-size:12px;opacity:.62}
+#kAcc{font-size:12px;opacity:.6;margin:2px 0 10px}
 </style>
 </head>
 
@@ -161,6 +171,7 @@ h1{font-size:21px;color:#221E19;margin-bottom:4px;letter-spacing:-.3px;font-weig
   </div>
 
   <div class="panel" id="p-status">
+    <div id="kAcc"></div>
     <div class="kpi"><div class="lb">Остаток депозита</div><div class="vl" id="kBal">—</div><div class="dl flat" id="kBalSub">свободная маржа</div></div>
     <div class="kpi"><div class="lb">Онлайн PnL</div><div class="vl" id="kPnl">—</div><div class="dl flat" id="kPnlSub">по открытым позициям</div></div>
     <div class="kpi"><div class="lb">PnL за 24 часа</div><div class="vl" id="kPnl24">—</div><div class="dl flat" id="kPnl24Sub">закрытые сделки</div></div>
@@ -211,6 +222,7 @@ document.addEventListener('click', function(ev){
   for(var k=0;k<ps.length;k++){ ps[k].classList.remove('on'); }
   var target = document.getElementById('p-'+p);
   if(target) target.classList.add('on');
+  if(p==='status'){ try{ loadMetrics(); }catch(e){} }
 });
 
 function showErr(id,t){var e=document.getElementById(id);e.textContent=t;e.style.display='block';}
@@ -219,6 +231,7 @@ function go(){
   toChat('menu');
 }
 var BOT='https://t.me/AzabotAi';
+var API_BASE='https://azazelm.com';
 // Perevod v chat cherez deep-link: "/start <cmd>". Rabotaet vsegda,
 // dazhe esli web_app_data ne dostal do bota.
 function toChat(cmd){
@@ -246,7 +259,10 @@ function send(payload){
   // Komandy s payload idut tol'ko cherez sendData - deep-link ih ne umeet peredat.
   var cmd=(payload&&payload.cmd)?payload.cmd:'';
   var NEEDS_PAYLOAD={ton_connect:1,ton_nonce:1,settings_save:1};
-  if(cmd&&!NEEDS_PAYLOAD[cmd]){
+  // Dubl: ranee sendData i toChat shli komandu dvazhdy - bot otvechal dvoyazhdy,
+  // a /cycle zapuskalsya dva raza. Teper deep-link tol'ko kak strahovka,
+  // esli sendData ne dostal do bota.
+  if(!ok&&cmd&&!NEEDS_PAYLOAD[cmd]){
     setTimeout(function(){ toChat(cmd); },600);
   } else if(cmd&&NEEDS_PAYLOAD[cmd]){
     setTimeout(function(){ try{if(tg&&tg.close)tg.close();}catch(e){} },600);
@@ -264,9 +280,9 @@ document.addEventListener('click', function(ev){
 document.getElementById('bStart').onclick=function(){send({cmd:'cycle'});};
 document.getElementById('bReport').onclick=function(){send({cmd:'report'});};
 document.getElementById('bStatus').onclick=function(){send({cmd:'status'});};
-document.getElementById('bStatus2').onclick=function(){send({cmd:'status'});};
+document.getElementById('bStatus2').onclick=function(){loadMetrics();};
 document.getElementById('bMetrics').onclick=function(){send({cmd:'metrics'});};
-document.getElementById('bMetrics2').onclick=function(){send({cmd:'metrics'});};
+document.getElementById('bMetrics2').onclick=function(){loadMetrics();};
 document.getElementById('bKey').onclick=function(){send({cmd:'walt_key'});};
 document.getElementById('bParams').onclick=function(){
   // Otvet bot prihodit v chat Telegram - Mini App zdesya ego ne poluchit.
@@ -274,6 +290,49 @@ document.getElementById('bParams').onclick=function(){
   send({cmd:'params'});
   document.getElementById('paramBox').innerHTML='<div class="empty">Параметры придут в чат Telegram — Mini App закроется.</div>';
 };
+
+function fmtMoney(v){ var n=Number(v)||0; return (n<0?'-':'')+'$'+Math.abs(n).toFixed(2); }
+function fmtSigned(v){ var n=Number(v)||0; return (n>0?'+':'')+n.toFixed(2); }
+function setTxt(id,t){ var e=document.getElementById(id); if(e) e.textContent=t; }
+async function loadMetrics(){
+  var id=(tg&&tg.initData)?tg.initData:'';
+  if(!id){ showErr('err2','Открой Mini App из Telegram — нужен init_data.'); return; }
+  clearErr('err2');
+  try{
+    var r=await fetch(API_BASE+'/api/metrics?init_data='+encodeURIComponent(id),{credentials:'same-origin'});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    var j=await r.json();
+    var bal=j.balance||{};
+    setTxt('kBal', fmtMoney(bal.free));
+    setTxt('kBalSub','свободная маржа · всего '+fmtMoney(bal.total));
+    var pnl=j.pnl||{};
+    setTxt('kPnl', fmtSigned(pnl.open));
+    setTxt('kPnlSub','по открытым позициям');
+    setTxt('kPnl24', fmtSigned(pnl.day24));
+    setTxt('kPnl24Sub','закрытые сделки за сутки');
+    var pos=Array.isArray(j.positions)?j.positions:[];
+    setTxt('kPos', String(pos.length));
+    var bar=document.getElementById('kPosBar'); if(bar) bar.style.width=Math.min(100,pos.length*20)+'%';
+    var pb=document.getElementById('posBox');
+    if(pb){
+      if(!pos.length){ pb.innerHTML='<div class="empty">Открытых позиций нет</div>'; }
+      else{
+        var h='';
+        for(var i=0;i<pos.length;i++){
+          var p=pos[i];
+          var cls=(Number(p.pnl)>0)?'pos':'pos neg';
+          h+='<div class="'+cls+'"><div class="psym">'+String(p.symbol||'')+' · '+String(p.side||'')
+            +'</div><div class="ppnl">'+(Number(p.pnl)>0?'+':'')+Number(p.pnl||0).toFixed(2)
+            +'</div><div class="ppx">вход '+Number(p.entry||0).toFixed(4)+' · сейчас '+Number(p.price||0).toFixed(4)+'</div></div>';
+        }
+        pb.innerHTML=h;
+      }
+    }
+    setTxt('kAcc', String(j.account_name||''));
+  }catch(e){
+    showErr('err2','Не получилось загрузить метрики: '+(e&&e.message||e));
+  }
+}
 
 (function init(){
   var s=document.getElementById('sub');
@@ -304,25 +363,57 @@ async function getNonce(){
   return j.nonce;
 }
 
-async function pickWallet(){
+async function listWallets(){
   var list=[];
   try{ list=await TonConnect.getWallets(); }catch(e){ tlog('getWallets '+e); }
-  if(!list||!list.length){ tlog('no wallets in list'); }
-  // Rasshireniya (injected) zhivut tol'ko na svoei stranice. V Telegram Mini App
-  // ih net -> SDK padaet s WalletNotInjectedError. Takie wallety otsekaem,
-  // berem tol'ko te, chto otkryvaetsya cherez universalLink/bridge.
-  var usable=[];
+  // V Telegram Mini App net okna window[tonconnect]. Esli u kartochki est
+  // jsBridgeKey - SDK vybiraet "injected"-provider i padaet s
+  // WalletNotInjectedError. Poetomu berem tol'ko HTTP-sovmestimye (est bridgeUrl)
+  // i ochishchaem kartochku ot jsBridgeKey.
+  var out=[];
   for(var i=0;i<(list||[]).length;i++){
+    var w=list[i]; if(!w) continue;
+    if(w.injected){ tlog('skip injected: '+(w.appName||'?')); continue; }
+    if(!w.bridgeUrl){ tlog('skip no-bridgeUrl: '+(w.appName||'?')); continue; }
+    out.push({ name:w.name, appName:w.appName, imageUrl:w.imageUrl, aboutUrl:w.aboutUrl,
+               tondns:w.tondns, platforms:w.platforms, features:w.features,
+               universalLink:w.universalLink||'', bridgeUrl:w.bridgeUrl });
+  }
+  tlog('usable wallets: '+out.length);
+  return out;
+}
+var WALLET_PRIO=['keeper','walt','tonkeeper','mytonwallet','gramwallet','telegram'];
+function pickWallet(list){
+  for(var p=0;p<WALLET_PRIO.length;p++){
+    for(var j=0;j<list.length;j++){
+      if(String(list[j].appName||'').toLowerCase()===WALLET_PRIO[p]) return list[j];
+    }
+  }
+  return list[0]||null;
+}
+function renderWalletList(list){
+  var box=document.getElementById('tonBox');
+  if(!box||!list||!list.length) return;
+  var h='<div class="sec">Выбери кошелёк</div>';
+  for(var i=0;i<list.length;i++){
     var w=list[i];
-    if(!w) continue;
-    var injectedOnly = !!(w.injected && w.injected!==undefined && !w.universalLink && !w.bridgeUrl);
-    if(injectedOnly){ tlog('skip injected-only: '+(w.appName||'?')); continue; }
-    usable.push(w);
+    h+='<button class="btn btn-s" type="button" data-wallet="'+String(i)+'">'
+      +String(w.name||w.appName||'Кошелёк')+'</button>';
   }
-  for(var j=0;j<usable.length;j++){
-    if(usable[j] && usable[j].universalLink) return usable[j];
+  box.style.display='block';
+  box.innerHTML=h;
+  var btns=box.querySelectorAll('button[data-wallet]');
+  for(var k=0;k<btns.length;k++){
+    btns[k].onclick=function(){
+      var idx=parseInt(this.getAttribute('data-wallet'),10);
+      var target=list[idx]; if(!target) return;
+      this.disabled=true;
+      tonState.err='';
+      connectWith(target).catch(function(e){
+        tonState.err=String(e&&e.message||e); renderTon();
+      }).then(function(){ this.disabled=false; }.bind(this));
+    };
   }
-  return usable[0]||null;
 }
 
 async function tonConnect(){
@@ -362,27 +453,34 @@ function renderTon(){
   }
 }
 
+async function connectWith(w){
+  var c=await tonConnect();
+  var nonce=await getNonce();
+  await c.connect(w, { request:{ tonProof: nonce } });
+  return w;
+}
 async function doTonConnect(){
   var btn=document.getElementById('bTon');
   btn.disabled=true;
+  tonState.err='';
   try{
-    var nonce=await getNonce();
-    var w=await pickWallet();
-    if(!w) throw new Error('Не найден ни один кошелёк');
-    var c=await tonConnect();
-    await c.connect(w, { request:{ tonProof: nonce } });
-    tlog('connect ok');
+    var list=await listWallets();
+    if(!list.length) throw new Error('Нет кошельков с мостом — обнови приложение кошелька');
+    var w=pickWallet(list);
+    await connectWith(w);
+    tlog('connect ok '+w.appName);
   }catch(e){
     tonState.err=String(e && e.message || e);
     tlog('connect err '+tonState.err);
     renderTon();
+    try{ renderWalletList(await listWallets()); }catch(e2){}
   }
   btn.disabled=false;
 }
 
 // Кнопка "Сохранить кошелёк" — отправляет боту proof + public_key
 document.getElementById('bTonSave').onclick=async function(){
-  if(!tonState.proof){ showErr('err','Сначала подключи кошелёк'); return; }
+  if(!tonState.proof){ showErr('err3','Сначала подключи кошелёк — нажми «Подключить TON-кошелёк».'); return; }
   var btn=this; btn.disabled=true;
   var o=document.getElementById('ok'); var e=document.getElementById('err');
   try{
