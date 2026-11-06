@@ -366,7 +366,7 @@ function renderWalletList(list){
 
 async function tonConnect(){
   if(tc) return tc;
-  tc=new TonConnect({ manifestUrl:'https://azazelm.com/tonconnect-manifest.json' });
+  tc=new TonConnect({ manifestUrl:'https://azazel-trader-yz2uw75a.agent.mira.tg/tonconnect-manifest.json' });
   tc.onStatusChange(function(w){
     try{
       if(w && w.account){
