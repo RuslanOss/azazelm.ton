@@ -43,6 +43,7 @@ WALT_API_KEY = os.environ.get("WALT_API_KEY", "")
 WALT_API_URL = os.environ.get("WALT_API_URL", "https://walt.bot/api")
 PORT = int(os.environ.get("AZAZEL_API_PORT", "8787"))
 CACHE_TTL = 5
+TERM_LOG_DIR = os.path.join(BASE_DIR, "term_log")
 log = logging.getLogger('azazel_api')
 logging.basicConfig(level=logging.INFO)
 _cache = {"t": 0.0, "data": None, "uid": None}   # KLYUCH = uid: ranee odin globalnyi kэsh otdaval dannye drugogo yuid
@@ -394,6 +395,37 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(200, d)
             except Exception as e:
                 self._json(500, {"error": str(e)})
+            return
+        if self.path.startswith("/api/term_log"):
+            # Istoriya dialoga termina: bot zapisyaet komandy i otvety.
+            # UID beretsya TOLKO iz podpisannogo init_data.
+            from urllib.parse import urlparse, parse_qs
+            q = parse_qs(urlparse(self.path).query)
+            init_data = (q.get("init_data") or [""])[0]
+            if _idm is None or not BOT_TOKEN:
+                self._json(503, {"error": "initdata module unavailable"})
+                return
+            ok, uid, reason = _idm.verify(init_data, BOT_TOKEN, max_age=86400)
+            if not ok:
+                self._json(401, {"error": "auth failed: " + str(reason)})
+                return
+            # offset - skolko strok klient uzhе videl; otdaem tol'ko novye.
+            try:
+                offset = int((q.get("offset") or ["0"])[0] or 0)
+            except Exception:
+                offset = 0
+            lines = []
+            try:
+                p = os.path.join(TERM_LOG_DIR, str(uid) + ".json")
+                with open(p, encoding="utf-8") as f:
+                    lines = json.load(f)
+                if not isinstance(lines, list):
+                    lines = []
+            except Exception:
+                lines = []
+            total = len(lines)
+            fresh = lines[offset:] if 0 <= offset < total else (lines[-40:] if offset >= total else [])
+            self._json(200, {"lines": fresh, "total": total})
             return
         if self.path.startswith("/api/ton_order_pending"):
             # Poslednyaya nedopodpisannaya zayavka polzovatelya.
