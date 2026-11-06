@@ -18,5 +18,6 @@
   "airtable_users_table": "tbl9q101sD0zmvrXx",
   "airtable_events_table": "tbl19AGwivPnURT5L",
   "settings_url": "https://azazelm.com/settings/",
-  "metrics_url": "https://azazelm.com/metrics/"
+  "metrics_url": "https://azazelm.com/metrics/",
+  "terminal_url": "https://azazelm.com/terminal/"
 }
