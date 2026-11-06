@@ -8,13 +8,14 @@
 set -uo pipefail
 
 echo "=== Azazel WEB-ASSETS DEPLOY ==="
-WEB_SHA="1261867c505f715bee1a179e20cc249e2a823170"
+WEB_SHA="21beb50408e96d9c69564c2614d91ed7df876f04"
 WEB_BASE="https://raw.githubusercontent.com/RuslanOss/azazelm.ton/${WEB_SHA}"
-WEB_FILES="web/app/assets/devil-256.png web/app/assets/devil-64.png web/app/index.html"
+WEB_FILES="web/app/assets/devil-256.png web/app/assets/devil-64.png web/app/assets/mini-terminal.png web/app/index.html"
 declare -A WEB_WANT=(
   ["devil-256.png"]="e5db284da3f2577da339381d7434d1b1956a2526196057751a492b8832c74ce6"
   ["devil-64.png"]="53621fe3b65d925458a63faff3004c3c9f59f1fd67a24e3507141afbed5ba7de"
-  ["index.html"]="29733bbe26b6aaf88f67f78c1ea5e9022cb7c919daf8bcfc2da80fc8591b68a2"
+  ["mini-terminal.png"]="54b0f0edd479e31516a58dcc62d8d09a8ccbc77955aa104bc88e82e6207d33ab"
+  ["index.html"]="1ada16d2c25dae592799facd1b5c8147982bac9c20e72821ba74ce05477998f3"
 )
 
 # 4.1 nayti katalog s assetami
@@ -80,20 +81,22 @@ if [ -n "${WEBROOT}" ]; then
   # 4.6 otvergai nginx i proverka cherez lokalnyy host
   nginx -t >/dev/null 2>&1 && { systemctl reload nginx 2>/dev/null && echo "    nginx reload: ok"; } || echo "    VNIHMANIE: nginx reload ne udalsya"
   sleep 2
-  LOC=""
   for PROBE in "http://127.0.0.1" "https://127.0.0.1" "https://azazelm.com"; do
-    if curl -fsSk --max-time 15 -H "Host: azazelm.com" "${PROBE}/app/assets/devil-256.png" -o /tmp/_w.png 2>/dev/null; then
-      LOC=$(sha256sum /tmp/_w.png | cut -d" " -f1)
-      echo "    probe ${PROBE} -> ${LOC:0:12}"
-      [ "${LOC}" = "${WEB_WANT[devil-256.png]}" ] && break
-    fi
+    for PF in "app/assets/devil-256.png" "app/assets/mini-terminal.png" "app/index.html"; do
+      curl -fsSk --max-time 15 -H "Host: azazelm.com" "${PROBE}/${PF}" -o /tmp/_w.bin 2>/dev/null || continue
+      LOC=$(sha256sum /tmp/_w.bin | cut -d" " -f1)
+      case "${PF}" in
+        *devil-256.png)      W="${WEB_WANT[devil-256.png]}" ;;
+        *mini-terminal.png)  W="${WEB_WANT[mini-terminal.png]}" ;;
+        *)                  W="${WEB_WANT[index.html]}" ;;
+      esac
+      if [ "${LOC}" = "${W}" ]; then
+        echo "    probe ${PROBE}/${PF} -> OK"
+      else
+        echo "    VNIHMANIE: ${PROBE}/${PF} -> ${LOC:0:12} (ozhidalsya ${W:0:12})"
+      fi
+    done
   done
-  if [ "${LOC}" = "${WEB_WANT[devil-256.png]}" ]; then
-    echo "    PROVERKA OK: server otdaet novuyu ikonku"
-  else
-    echo "    VNIHMANIE: lokalno server otdaet staruyu ikonku"
-    echo "    fayly na diske obnovleny i s pravilnymi sha256 - prover otkrytiye v Telegram"
-  fi
   [ ${WEBFAIL} -ne 0 ] && echo "    VNIHMANIE: web-assety s chastichnymi oshibkami"
 fi
 
