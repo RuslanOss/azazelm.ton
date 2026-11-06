@@ -146,5 +146,6 @@
   "settings_url": "https://azazel-settings-yz2uw75a.agent.mira.tg",
   "metrics_url": "https://azazel-metrics-yz2uw75a.agent.mira.tg",
   "wallet": "UQCi-czlbdSHaUsUIfmnGjuCQia_Iq4ehomwik1ajLNgVHhX",
-  "thumb_url": "https://azazelm.com/app/assets/mini-terminal.png"
+  "thumb_url": "https://azazelm.com/app/assets/mini-terminal.png",
+  "terminal_url": "https://azazelm.com/terminal/"
 }
