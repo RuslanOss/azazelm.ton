@@ -269,15 +269,87 @@ APP_URL = CFG.get("app_url", "")
 THUMB_URL = CFG.get("thumb_url") or "https://azazelm.com/app/assets/mini-terminal.png"
 # Direct link na mini-app Walt: otkryvaet mini-prilozhenie s ekranom oplaty, a ne chat bota.
 WALT_URL = "https://t.me/wallet/start?startapp="
+# Mini App "Terminal" - stranitsa termina s vvodom komand v pole soobshcheniya.
+TERMINAL_URL = CFG.get("terminal_url") or ""
+# Log termina: bot zapisyaet komandy i otvety, Mini App chitaet ih cherez /api/term_log.
+TERM_LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "term_log")
+# Kontekst tekushhego zaprosa iz termina: (chat_id, uid) ili None.
+_TERM_CTX = None
+# Chaty, gde reply-klaviatura s knopkoy termina uzhe pokazyvalas.
+_TERM_KB_DONE = set()
+# Timer avtosbrosa konteksta termina.
+_TERM_CTX_TIMER = None
 
 
 def send_terminal_kb(chat_id):
-    """Reply-klaviatura ubrana: ne puzhno v okne soobshcheniya.
+    """Knopka termina v pole vvoda soobshcheniya.
 
-    Mini App otkryvaetsya cherez inline-knopku vTelegram ("Otkryt terminal"),
-    poetomu otdelnaya klaviatura s kachelkom dlya ee ne nuzhna.
+    Telegram ne umeet web_app v reply-klaviature, no umeet v menyu bota
+    (setChatMenuButton) - ono poyavlyaetsya PRYAM v pole vvoda, ryadom s
+    mikrofonom. Eta knopka otkryvaet Mini App "Terminal".
     """
-    return None
+    if not TERMINAL_URL:
+        return None
+    r = tg("setChatMenuButton", {"chat_id": chat_id,
+                                 "menu_button": {"type": "web_app", "text": "Терминал",
+                                                 "web_app": {"url": TERMINAL_URL}}})
+    if not (r and r.get("ok")):
+        log.warning("setChatMenuButton ne udalsya: %s", r)
+        return None
+    # Reply-klaviaturu pokazyvaem tol'ko raz: inache kazhdyi /start zaspamilit
+    # soobshchenie. Knopka menyu bota (v pole vvoda) uzhе stoit vsegda.
+    if chat_id in _TERM_KB_DONE:
+        return None
+    _TERM_KB_DONE.add(chat_id)
+    return tg("sendMessage", {"chat_id": chat_id,
+                              "text": "Терминал открыт в поле ввода - нажми «Терминал» рядом с микрофоном.",
+                              "reply_markup": {"keyboard": [["Терминал"]],
+                                              "resize_keyboard": True,
+                                              "one_time_keyboard": False,
+                                              "remove_keyboard": False}})
+
+
+def _arm_term_ctx_reset(delay=25):
+    """Avtosbros konteksta termina - inache sleduyushchie soobshcheniya iz chat
+    popali by v istoriyu termina."""
+    global _TERM_CTX_TIMER
+    try:
+        import threading
+        if _TERM_CTX_TIMER is not None:
+            _TERM_CTX_TIMER.cancel()
+        def _reset():
+            global _TERM_CTX
+            _TERM_CTX = None
+        _TERM_CTX_TIMER = threading.Timer(delay, _reset)
+        _TERM_CTX_TIMER.daemon = True
+        _TERM_CTX_TIMER.start()
+    except Exception as e:
+        log.warning("arm reset: %s", e)
+
+
+def term_log_write(uid, role, text, cmd=""):
+    """Zapisyvaet stroku v istoriyu termina (dlya Mini App)."""
+    if not uid:
+        return
+    try:
+        os.makedirs(TERM_LOG_DIR, exist_ok=True)
+        path = os.path.join(TERM_LOG_DIR, str(uid) + ".json")
+        try:
+            with open(path, encoding="utf-8") as f:
+                lines = json.load(f)
+            if not isinstance(lines, list):
+                lines = []
+        except Exception:
+            lines = []
+        lines.append({"ts": datetime.datetime.now().strftime("%H:%M:%S"),
+                      "role": role, "text": str(text)[:4000], "cmd": str(cmd)[:200]})
+        lines = lines[-120:]
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(lines, f, ensure_ascii=False)
+        os.replace(tmp, path)
+    except Exception as e:
+        log.warning("term_log_write: %s", e)
 
 def remove_reply_kb(chat_id):
     """Snimaet stavuyu reply-klaviaturu "Terminal" u polzovatelya.
@@ -323,6 +395,13 @@ def menu_buttons():
 
 def send(chat_id, text, buttons=None):
     payload = {"chat_id": chat_id, "text": text, "parse_mode": "HTML", "disable_web_page_preview": True}
+    # Esli zapros prisel iz termina - sohranyaem otvet, chtoby Mini App pokazal
+    # ego v okne termina, a ne tol'ko v chat Telegram.
+    if _TERM_CTX and _TERM_CTX[1]:
+        try:
+            term_log_write(_TERM_CTX[1], "bot", text)
+        except Exception:
+            pass
     if buttons:
         rows, cur = [], []
         for b in buttons:
@@ -710,6 +789,8 @@ def text_handler(chat_id, uid, txt):
                 + "Пришли адрес кошелька целиком — например <code>UQAintXt7mpJqxnTXJF...</code>")
         return finish_wallet(chat_id, uid, txt.strip())
     if not s or s["step"] >= len(STEPS):
+        if low in ("терминал", "терминал ", "/terminal", "terminal"):
+            return cmd_app(chat_id, uid)
         if low in ("ключ", "ключ api", "api ключ", "walt ключ", "/key", "walt_key"):
             return cmd_walt_key(chat_id, uid)
         if low in ("параметры", "мои параметры", "/params"): return cmd_params(chat_id, uid)
@@ -766,7 +847,8 @@ def ensure_user(uid, name, username):
 
 
 def start(chat_id, uid, name, username):
-    remove_reply_kb(chat_id)
+    # Vmesto pustoy klaviatury - knopka termina v pole vvoda.
+    send_terminal_kb(chat_id)
     pid, created = ensure_user(uid, name, username)
     SESS[uid] = {"tg_id": uid, "step": 0, "data": {}, "page": pid, "name": name}
     send(chat_id, menu_text(uid, name, username), menu_buttons())
@@ -800,6 +882,43 @@ def _authorize_initdata(cmd, init_data, event_uid=None):
             return False, None, "proverka podpisi nedostupna"
         return True, event_uid, "proverka podpisi nedostupna"
     return _id.authorize(cmd, init_data, TOKEN, event_uid=event_uid)
+
+
+
+def cmd_term(chat_id, uid, text):
+    """Terminal Mini App: vypolnyaet proizvolnuyu komandu kak obychnoe soobshchenie.
+
+    Text prisoyeden iz Mini App cherez web_app_data {"cmd":"term","text":"..."}.
+    Otvet bot pishetsya v chat Telegram I v istoriyu termina.
+    """
+    global _TERM_CTX
+    raw = (text or "").strip()
+    if not raw:
+        return send(chat_id, "Пустая команда. Напиши /help - список команд.")
+    low = raw.lower()
+    _TERM_CTX = (chat_id, uid)
+    try:
+        term_log_write(uid, "user", raw, cmd=raw)
+        if low.startswith("/"):
+            c = low.split()[0]
+            if c == "/start": return start(chat_id, uid, "", "")
+            if c == "/params": return cmd_params(chat_id, uid)
+            if c == "/status": return cmd_status(chat_id, uid)
+            if c == "/report": return cmd_report(chat_id, uid)
+            if c in ("/cycle", "/algo"): return cmd_cycle(chat_id, uid)
+            if c == "/metrics": return cmd_metrics_data(chat_id, uid)
+            if c == "/menu": return send(chat_id, menu_text(uid, "", ""), menu_buttons())
+            if c in ("/help", "/support"): return send(chat_id, HELP)
+            if c in ("/key", "/walt_key"): return cmd_walt_key(chat_id, uid)
+            if c in ("/app", "/terminal"): return cmd_app(chat_id, uid)
+            if c == "/skills": return send(chat_id, SKILLS_TXT)
+            return send(chat_id, "Не понял команду: " + c + ". /help - все команды.")
+        return text_handler(chat_id, uid, raw)
+    except Exception as e:
+        log.exception("cmd_term: %s", e)
+        return send(chat_id, "Ошибка выполнения команды: " + str(e)[:200])
+    finally:
+        _TERM_CTX = None
 
 
 def handle_webapp_data(chat_id, uid, data_str):
@@ -846,6 +965,16 @@ def handle_webapp_data(chat_id, uid, data_str):
         return send(chat_id, "Не удалось проверить подпись запроса: " + reason)
 
     log.info("web_app_data from uid %s: %s", uid, cmd)
+    # Lyubaya komanda iz Mini App pishetsya v istoriyu termina: tak Mini App
+    # pokazhet vse otvety bota v svoem okne.
+    global _TERM_CTX
+    if cmd != "term":
+        _TERM_CTX = (chat_id, uid)
+        try:
+            term_log_write(uid, "user", "/" + cmd, cmd=cmd)
+        except Exception:
+            pass
+        _arm_term_ctx_reset()
     if cmd == "start":
         return start(chat_id, uid, "", "")
     if cmd == "params":
@@ -872,9 +1001,15 @@ def handle_webapp_data(chat_id, uid, data_str):
             return send(chat_id, "Не смог сохранить настройки.")
     if cmd == "algo":
         return cmd_algo(chat_id, uid)
+    if cmd == "term":
+        return cmd_term(chat_id, uid, str(payload.get("text") or ""))
     if cmd in ("help", "support"):
-        return send(chat_id, HELP)
-    return send(chat_id, "Не понял команду: " + cmd)
+        r = send(chat_id, HELP)
+        _TERM_CTX = None
+        return r
+    r = send(chat_id, "Не понял команду: " + cmd)
+    _TERM_CTX = None
+    return r
 
 # ── Кошелёк Walt: отдельный вход до оплаты ──
 WALLET_IDX = next((i for i, s_ in enumerate(STEPS) if s_[0] == "wallet"), len(STEPS) - 1)
