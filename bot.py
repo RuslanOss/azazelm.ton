@@ -280,8 +280,13 @@ def send_terminal_kb(chat_id):
     return None
 
 def remove_reply_kb(chat_id):
-    """Snimaet stavuyu reply-klaviaturu "Terminal" u polzovatelya."""
-    return tg("sendMessage", {"chat_id": chat_id, "text": " ",
+    """Snimaet stavuyu reply-klaviaturu "Terminal" u polzovatelya.
+
+    Telegram otklanyaet pustoe probelnoe tekstovoe soobshchenie ("text must be
+    non-empty"), poetomu otpravlyaem nevidimy separator U+2063 - on schitaetsya
+    neputym tekstom, a klaviatura snimaetsya.
+    """
+    return tg("sendMessage", {"chat_id": chat_id, "text": "\u2063",
         "reply_markup": {"remove_keyboard": True}})
 
 def send_thumb(chat_id, caption=""):
