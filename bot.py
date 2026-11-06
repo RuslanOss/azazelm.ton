@@ -545,6 +545,22 @@ def cmd_app(chat_id, uid):
         [("Открыть терминал", APP_URL, "web_app")])
 
 
+def cmd_terminal_page(chat_id, uid):
+    """Otkryvaet stranicu termina Mini App (pole vvoda komand).
+
+    Eto ne to zhe, chto osnovnoe prilozhenie s nastrojkami - zdes pryamo
+    panel vvoda komand vo ves ekran.
+    """
+    url = TERMINAL_URL or APP_URL
+    if not url:
+        return send(chat_id, "Терминал пока недоступен.")
+    send_terminal_kb(chat_id)
+    return send(chat_id,
+        "<b>Терминал</b>\n\nПанель ввода команд во весь экран — как в консоли.\n"
+        + "Можно открыть и из поля ввода: кнопка «Терминал» рядом с микрофоном.",
+        [("Открыть терминал", url, "web_app")])
+
+
 def cmd_order(chat_id, uid, args=""):
     """Zayavka na order s podtverzhdeniem podpisyu koshelyka.
 
@@ -790,7 +806,7 @@ def text_handler(chat_id, uid, txt):
         return finish_wallet(chat_id, uid, txt.strip())
     if not s or s["step"] >= len(STEPS):
         if low in ("терминал", "терминал ", "/terminal", "terminal"):
-            return cmd_app(chat_id, uid)
+            return cmd_terminal_page(chat_id, uid)
         if low in ("ключ", "ключ api", "api ключ", "walt ключ", "/key", "walt_key"):
             return cmd_walt_key(chat_id, uid)
         if low in ("параметры", "мои параметры", "/params"): return cmd_params(chat_id, uid)
