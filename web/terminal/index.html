@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,viewport-fit=cover">
+<title>Azazel Trader — Терминал</title>
+<link rel="icon" type="image/png" href="assets/devil-64.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=UnifrakturMaguntia&family=UnifrakturCook:wght@700&display=swap" rel="stylesheet">
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html{background:#FBF6EE}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;position:relative;min-height:100vh;color:#221E19;padding:16px 16px 340px;-webkit-font-smoothing:antialiased;overscroll-behavior:none}
+#bgstatic{position:fixed;top:0;left:0;right:0;bottom:0;z-index:0;pointer-events:none;background:#FBF6EE url('assets/bg-wall.png') center/cover no-repeat}
+body::after{content:'';position:fixed;top:0;left:0;right:0;bottom:0;z-index:0;pointer-events:none;background:linear-gradient(180deg,rgba(255,250,240,.10) 0%,rgba(255,246,232,.28) 100%)}
+body>*{position:relative;z-index:1}
+.brand{display:flex;align-items:center;gap:12px;margin-bottom:6px}
+.brand-logo{width:52px;height:52px;border-radius:14px;object-fit:cover;flex:0 0 auto;box-shadow:0 6px 18px rgba(12,18,48,.42),inset 0 1px 0 rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.28)}
+.brand-txt{min-width:0}
+h1{font-family:'UnifrakturCook',Georgia,serif;font-size:23px;color:#221E19;margin-bottom:2px;letter-spacing:-.3px;font-weight:700}
+.subtitle{font-size:13px;color:#6B6255}
+.card{background:rgba(255,255,255,.34);-webkit-backdrop-filter:blur(28px) saturate(1.7) brightness(1.12);backdrop-filter:blur(28px) saturate(1.7) brightness(1.12);border:1px solid rgba(255,255,255,.72);border-radius:24px;padding:20px 18px;max-width:520px;margin:0 auto 12px;box-shadow:0 18px 50px rgba(150,120,80,.22),inset 0 1px 0 rgba(255,255,255,.85)}
+.sec{font-size:11px;color:#8A7F6D;text-transform:uppercase;letter-spacing:.08em;margin:22px 0 10px;font-weight:700}
+.sec:first-child{margin-top:0}
+.btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:13px;border:none;border-radius:12px;font-size:15px;font-weight:600;cursor:pointer;margin-top:8px;font-family:inherit;transition:transform .15s,background .15s;text-decoration:none;line-height:1.2}
+.btn:active{transform:scale(.99)}
+.btn-p{background:#0B0E11;color:#fff;box-shadow:0 2px 10px rgba(0,0,0,.32)}
+.btn-p:hover{background:#23282F}
+.btn-s{background:rgba(255,255,255,.46);border:1px solid rgba(255,255,255,.75);color:#332C24;backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px)}
+.btn-s:hover{background:#FAFBFC}
+.cmdrow{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid rgba(255,255,255,.55)}
+.cmdrow:last-child{border-bottom:none}
+.cmd{display:inline-block;min-width:78px;text-align:center;padding:5px 10px;border-radius:8px;background:#0B0E11;color:#fff;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;font-weight:600;letter-spacing:.2px;cursor:pointer}
+.cmd:active{transform:scale(.96)}
+.cmddesc{font-size:13px;color:#6B6255;flex:1}
+.note{font-size:11.5px;color:#8A7F6D;line-height:1.55;margin-top:14px}
+.err{color:#B32D3E;font-size:13px;margin-top:10px;display:none}
+.ok-box{background:rgba(236,253,245,.76);border:1px solid #9FD9C4;border-radius:10px;padding:12px;font-size:13px;color:#0B8;margin-top:10px;display:none}
+.log{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:#4A4238;background:rgba(0,0,0,.045);border:1px solid rgba(255,255,255,.55);border-radius:12px;padding:10px;max-height:120px;overflow:auto;margin-top:10px;white-space:pre-wrap;word-break:break-word}
+.log div{padding:2px 0}
+.log .t{color:#9C9182}
+
+/* ── Нижняя панель терминала: размером с клавиатуру ── */
+#term{position:fixed;left:0;right:0;bottom:0;z-index:40;height:320px;max-height:46vh;display:flex;flex-direction:column;
+  background:rgba(250,246,238,.86);-webkit-backdrop-filter:blur(30px) saturate(1.7);backdrop-filter:blur(30px) saturate(1.7);
+  border-top:1px solid rgba(255,255,255,.85);border-radius:22px 22px 0 0;
+  box-shadow:0 -14px 44px rgba(120,95,60,.24);padding-bottom:env(safe-area-inset-bottom);transition:transform .28s cubic-bezier(.32,.72,0,1)}
+#term.hidden{transform:translateY(102%)}
+#term .grab{width:42px;height:5px;border-radius:99px;background:rgba(60,50,38,.28);margin:8px auto 2px;flex:0 0 auto}
+#term .thead{display:flex;align-items:center;gap:8px;padding:4px 16px 8px;flex:0 0 auto}
+#term .ttitle{font-size:12px;color:#8A7F6D;text-transform:uppercase;letter-spacing:.08em;font-weight:700;flex:1}
+#term .x{width:30px;height:30px;border-radius:9px;border:1px solid rgba(255,255,255,.8);background:rgba(255,255,255,.55);color:#332C24;font-size:15px;cursor:pointer;line-height:1}
+.chips{display:flex;gap:6px;overflow-x:auto;padding:0 12px 8px;flex:0 0 auto;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+.chips::-webkit-scrollbar{display:none}
+.chip{flex:0 0 auto;padding:7px 11px;border-radius:10px;background:rgba(255,255,255,.62);border:1px solid rgba(255,255,255,.8);color:#4A4238;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;cursor:pointer;box-shadow:0 2px 8px rgba(150,120,80,.10)}
+.chip:active{transform:scale(.96);background:#fff}
+.chip.sent{background:#0B0E11;color:#fff;border-color:#0B0E11}
+#termLog{flex:1 1 auto;overflow-y:auto;margin:0 12px 8px;padding:10px;border-radius:12px;background:rgba(0,0,0,.045);border:1px solid rgba(255,255,255,.55);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:#4A4238;white-space:pre-wrap;word-break:break-word}
+#termLog .row{padding:1px 0}
+#termLog .t{color:#9C9182}
+#termLog .me{color:#0B0E11;font-weight:600}
+#termLog .sys{color:#0E7A52}
+#termLog .er{color:#B32D3E}
+.inrow{display:flex;gap:8px;align-items:center;padding:0 12px 12px;flex:0 0 auto}
+.inrow .pre{font-family:ui-monospace,Menlo,monospace;font-size:15px;color:#8A7F6D;font-weight:700;flex:0 0 auto}
+#cmdIn{flex:1;min-width:0;padding:13px 14px;border-radius:12px;border:1px solid rgba(255,255,255,.9);background:rgba(255,255,255,.78);color:#221E19;font-size:16px;font-family:inherit;outline:none;box-shadow:inset 0 1px 2px rgba(0,0,0,.04)}
+#cmdIn:focus{border-color:rgba(120,95,60,.45);background:#fff}
+#sendBtn{flex:0 0 auto;width:46px;height:46px;border-radius:12px;border:none;background:#0B0E11;color:#fff;font-size:18px;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.30)}
+#sendBtn:active{transform:scale(.96)}
+.hintbar{position:fixed;left:0;right:0;bottom:0;z-index:35;padding:10px 12px calc(12px + env(safe-area-inset-bottom));background:linear-gradient(180deg,rgba(255,250,242,0) 0%,rgba(255,248,236,.55) 45%,rgba(255,246,232,.86) 100%);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+#openTerm{width:100%;max-width:520px;margin:0 auto}
+</style>
+</head>
+<body>
+<div id="bgstatic"></div>
+
+<div class="card">
+  <div class="brand">
+    <img class="brand-logo" src="assets/devil-256.png" alt="Azazel" width="52" height="52">
+    <div class="brand-txt">
+      <h1>Azazel Trader</h1>
+      <div class="subtitle" id="sub">Терминал и все команды — здесь.</div>
+    </div>
+  </div>
+
+  <div class="sec">Быстрые действия</div>
+  <button class="btn btn-p" id="bStart" type="button">&#9654; Запустить торговый цикл</button>
+  <button class="btn btn-s" id="bStatus" type="button">&#128260; Текущий статус</button>
+  <button class="btn btn-s" id="bReport" type="button">&#128196; Отчёт за сегодня</button>
+  <button class="btn btn-s" id="bMetrics" type="button">&#128200; Метрики счёта</button>
+
+  <div class="sec">Команды</div>
+  <div class="cmdrow"><span class="cmd" data-cmd="/cycle">/cycle</span><span class="cmddesc">прогнать автономный цикл</span></div>
+  <div class="cmdrow"><span class="cmd" data-cmd="/status">/status</span><span class="cmddesc">баланс, PnL, позиции</span></div>
+  <div class="cmdrow"><span class="cmd" data-cmd="/metrics">/metrics</span><span class="cmddesc">метрики счёта</span></div>
+  <div class="cmdrow"><span class="cmd" data-cmd="/report">/report</span><span class="cmddesc">разбор сделок за день</span></div>
+  <div class="cmdrow"><span class="cmd" data-cmd="/params">/params</span><span class="cmddesc">текущие параметры торговли</span></div>
+  <div class="cmdrow"><span class="cmd" data-cmd="/algo">/algo</span><span class="cmddesc">алгоритм и автоцикл</span></div>
+  <div class="cmdrow"><span class="cmd" data-cmd="/menu">/menu</span><span class="cmddesc">главное меню</span></div>
+  <div class="cmdrow"><span class="cmd" data-cmd="/help">/help</span><span class="cmddesc">справка по командам</span></div>
+
+  <div class="ok-box" id="ok"></div>
+  <div class="err" id="err"></div>
+  <div class="log" id="log"></div>
+  <div class="note">Команда отправляется боту в этом чате — ответ придёт сообщением сюда же. Панель ввода снизу открывается кнопкой «Терминал» и размером с клавиатуру.</div>
+</div>
+
+<div class="hintbar">
+  <button class="btn btn-p" id="openTerm" type="button">&#9000; Терминал — ввод команд</button>
+</div>
+
+<div id="term">
+  <div class="grab"></div>
+  <div class="thead">
+    <div class="ttitle">Терминал Azazel</div>
+    <button class="x" id="termClose" type="button" aria-label="Закрыть">&times;</button>
+  </div>
+  <div class="chips" id="chips"></div>
+  <div id="termLog"></div>
+  <div class="inrow">
+    <span class="pre">&gt;</span>
+    <input class="inp" id="cmdIn" placeholder="/cycle  или  параметры" autocomplete="off" enterkeyhint="send">
+    <button id="sendBtn" type="button" aria-label="Отправить">&#10148;</button>
+  </div>
+</div>
+
+<script>
+var tg=window.Telegram&&window.Telegram.WebApp;
+try{tg.ready();}catch(e){} try{tg.expand();}catch(e){} try{tg.setHeaderColor('#FBF6EE');}catch(e){}
+try{tg.BackButton.onClick(function(){openTerm();});}catch(e){}
+
+var UID=0,NAME='';
+try{
+  var u=(tg&&tg.initDataUnsafe&&tg.initDataUnsafe.user)?tg.initDataUnsafe.user:null;
+  if(u){UID=u.id;NAME=u.first_name||u.username||'';}
+  if(NAME){document.getElementById('sub').textContent='Терминал и все команды — здесь. '+NAME;}
+}catch(e){}
+
+var BOT='https://t.me/AzabotAi';
+var CHIPS=['/cycle','/status','/metrics','/report','/params','/algo','/menu','/help'];
+
+function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+function nowT(){var d=new Date();return ('0'+d.getHours()).slice(-2)+':'+('0'+d.getMinutes()).slice(-2)+':'+('0'+d.getSeconds()).slice(-2);}
+
+function logLine(cls,txt){
+  var box=document.getElementById('termLog');
+  var d=document.createElement('div');
+  d.className='row '+cls;
+  d.innerHTML='<span class="t">'+nowT()+'</span> '+txt;
+  box.appendChild(d);
+  box.scrollTop=box.scrollHeight;
+}
+function logEcho(txt){ logLine('me','&gt; '+esc(txt)); }
+
+/* ── Istoriya termina cherez /api/term_log ── */
+var API_BASE='https://azazelm.com';
+var seenLines=0, pollTimer=null;
+
+function renderLine(l){
+  var cls = l.role==='user' ? 'me' : (l.role==='bot' ? 'sys' : 't');
+  var txt = l.role==='user' ? '&gt; '+esc(l.text) : esc(l.text);
+  logLine(cls, txt);
+}
+function loadLog(){
+  var id=(tg&&tg.initData)?tg.initData:'';
+  if(!id) return;
+  try{
+    fetch(API_BASE+'/api/term_log?init_data='+encodeURIComponent(id)+'&offset='+seenLines,
+      {headers:{'Accept':'application/json'}})
+      .then(function(r){return r.json();})
+      .then(function(j){
+        if(!j||!j.lines) return;
+        j.lines.forEach(renderLine);
+        seenLines = j.total||seenLines;
+      })
+      .catch(function(){});
+  }catch(e){}
+}
+function startPolling(){
+  if(pollTimer) return;
+  loadLog();
+  pollTimer=setInterval(loadLog,1500);
+}
+function stopPolling(){ if(pollTimer){clearInterval(pollTimer);pollTimer=null;} }
+
+/* ── Инициализация чипов ── */
+(function(){
+  var c=document.getElementById('chips');
+  CHIPS.forEach(function(k){
+    var b=document.createElement('span');
+    b.className='chip'; b.textContent=k;
+    b.onclick=function(){ submit(k,true); };
+    c.appendChild(b);
+  });
+})();
+
+/* ── Открытие/закрытие терминала ── */
+function openTerm(){
+  var t=document.getElementById('term');
+  t.classList.remove('hidden');
+  var hint=document.querySelector('.hintbar');
+  if(hint) hint.style.display='none';
+  setTimeout(function(){ try{document.getElementById('cmdIn').focus();}catch(e){} },320);
+  logLine('sys','Терминал открыт. Введите команду и нажмите ↵.');
+  startPolling();
+}
+function closeTerm(){
+  stopPolling();
+  document.getElementById('term').classList.add('hidden');
+  var hint=document.querySelector('.hintbar');
+  if(hint) hint.style.display='';
+}
+loadLog();
+document.getElementById('openTerm').onclick=openTerm;
+document.getElementById('termClose').onclick=closeTerm;
+
+/* ── Отправка команды боту ── */
+function submit(text,fromChip){
+  var t=(text==null?'':String(text)).trim();
+  if(!t) return;
+  if(fromChip){
+    var chips=document.querySelectorAll('.chip');
+    for(var i=0;i<chips.length;i++){
+      if(chips[i].textContent===t){ chips[i].classList.add('sent'); setTimeout(function(c){c.classList.remove('sent');},1200); }
+    }
+  }
+  var inp=document.getElementById('cmdIn');
+  inp.value='';
+
+  var id=(tg&&tg.initData)?tg.initData:'';
+  if(!id){
+    // Mini App вне Telegram — уходим в чат через deep-link.
+    logLine('sys','Открываю чат бота с командой.');
+    try{tg.openTelegramLink(BOT+'?start='+encodeURIComponent(t));}catch(e){location.href=BOT+'?start='+encodeURIComponent(t);}
+    return;
+  }
+  try{
+    tg.sendData(JSON.stringify({cmd:'term',text:t,init_data:id}));
+    logLine('sys','Отправлено боту: '+esc(t));
+    setTimeout(loadLog,500);
+  }catch(e){
+    logLine('er','Не удалось отправить: '+esc(e.message||e));
+    try{tg.openTelegramLink(BOT+'?start='+encodeURIComponent(t));}catch(e2){}
+  }
+}
+document.getElementById('sendBtn').onclick=function(){ submit(document.getElementById('cmdIn').value); };
+document.getElementById('cmdIn').addEventListener('keydown',function(e){
+  if(e.key==='Enter'){ e.preventDefault(); submit(this.value); }
+});
+
+/* ── Быстрые кнопки и чипы команд ── */
+function quick(cmd){
+  var id=(tg&&tg.initData)?tg.initData:'';
+  if(!id){ try{tg.openTelegramLink(BOT+'?start='+encodeURIComponent(cmd));}catch(e){} return; }
+  try{
+    tg.sendData(JSON.stringify({cmd:cmd,init_data:id}));
+    var o=document.getElementById('ok');
+    o.style.display='block';
+    o.textContent='Отправлено боту — ответ придёт в чат.';
+    logLine('sys','Отправлено боту: '+esc(cmd));
+    setTimeout(loadLog,500);
+  }catch(e){
+    var er=document.getElementById('err');
+    er.style.display='block'; er.textContent='Не удалось отправить: '+(e.message||e);
+  }
+}
+document.getElementById('bStart').onclick=function(){quick('cycle');};
+document.getElementById('bStatus').onclick=function(){quick('status');};
+document.getElementById('bReport').onclick=function(){quick('report');};
+document.getElementById('bMetrics').onclick=function(){quick('metrics');};
+
+document.addEventListener('click',function(ev){
+  var el=ev.target&&ev.target.closest?ev.target.closest('.cmd'):null;
+  if(!el) return;
+  submit(el.getAttribute('data-cmd'),true);
+});
+</script>
+</body>
+</html>
