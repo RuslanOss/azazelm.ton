@@ -6,7 +6,7 @@
 set -uo pipefail
 
 SHA="main"
-SHA_PIN="947eed2d1cd42f0759fa66cd99094b398161c922"
+SHA_PIN="f2ed680681934a060652f783d30528c44c0326e7"
 BASE="https://raw.githubusercontent.com/RuslanOss/azazelm.ton/${SHA_PIN}"
 DIR="/opt/azabot"
 BACKUP="${DIR}/backup_$(date +%Y%m%d_%H%M%S)"
@@ -39,7 +39,7 @@ echo "[4/10] web-assety (ikonka Mini App)"
 if [ "${ONLY_WEB:-0}" = "1" ]; then echo "    rezhim ONLY_WEB=1 - tolko web-assety"; fi
 # Ikonka - belyj silujet v PNG. Vsyu logiku (WEBROOT, sha256, ochistka staryh JPEG,
 # nginx reload, live-probe) derzhit otdelnyy skript, zdes zovem ego.
-WEBASSETS_SHA="92ad26c5e111ad40e07451c761585223a4ad996a"
+WEBASSETS_SHA="0b3413ea683eba5fc912a34f8c081d244ee10db5"
 WEBASSETS_BASE="https://raw.githubusercontent.com/RuslanOss/azazelm.ton/${WEBASSETS_SHA}"
 if curl -fsSL --max-time 40 "${WEBASSETS_BASE}/deploy_web_assets.sh" -o /tmp/_deploy_web_assets.sh; then
   chmod +x /tmp/_deploy_web_assets.sh
@@ -60,19 +60,19 @@ declare -A WANT=(
   ["algo_config.py"]="f8633b28a97183fcceac73aefb8fa95f24f0f034b45854ebda0e3463a7ce9b79"
   ["autotrading_config.json"]="6631e5b2c9200e8f7317abd680e29bd0aa08ea93997b83caefebd95c94455213"
   ["azabot.service"]="a274e24530a6c6967d3aa0e1182d8ba3d4f493b3fabdbbe887f9ea0ecb625f1e"
-  ["azazel_api.py"]="0474ef36e080d3f1cff54df181ff0667fc7cf46c739b9b3ecf5b91606ba770ea"
-  ["azazel_config.json"]="e75836e86d6f1755c3c0b6506f58f1feb1373a2a0874051b336ac32835dc3e42"
-  ["azazel_config_loader.py"]="fbfe35648766756d1df7fe4afb9f95c352056562fda929a25630c881201a3c20"
-  ["bot.py"]="778150bb26683674497e58250c7b39966bcf9e59b665f229f467237f950f9709"
-  ["config.json"]="996496977f7e4a2b7720c66b232a04bbce89499914d6658ffc73c86025968591"
-  ["continuation_engine.py"]="f19c9b163ffd7f3fb56b8fd826c871328e1c4affd536f252f5f6e7b69110e794"
+  ["azazel_api.py"]="317690eecec1291fedb9938da5e8c9a3829cbfb75c2da2145df851cb2b49cb39"
+  ["azazel_config.json"]="efa47168b9c20d0e564dba55bce495675bc1b878fc62be96ab757b3d94290a13"
+  ["azazel_config_loader.py"]="a1fb911553c3a6b3766e86b9b3b419c227bd5fbacbe4ad74924773710e2a206a"
+  ["bot.py"]="001ee4e0d9cd52bd159000f23693c34ea0c0329ea76dd907b4e3d9c6488ace50"
+  ["config.json"]="eaa497614f0ddc67ecac234f7d2a9c19f2c1e6b10a28568677d25bd2c050f73b"
+  ["continuation_engine.py"]="278e59035c50427a326bb4c51cabc05c421f96d56488aa311820ac10aee0895f"
   ["continuation_engine_v2.py"]="b15fb414918cd97c56648af1227cc9e34e0f266159314f607ce3da131e61e03a"
   ["install.sh"]="9e458e8d45c404a0a259465532456ae505179818e6ab5bb9b109801119eaed26"
   ["scalping_framework_v2.py"]="6af88e1c52eb0efb808e5b0785be5563f060bae5ea5519a3e00a5bae520cedbb"
   ["scalping_strategies.py"]="9a2ab547eb30706c02558154639ec4257bd256bead2a872df29186d34cd5a43a"
   ["steps.py"]="27ebc820e407b6352917e9ec8861658369e1a72fe2200923089a17956ff1d446"
-  ["test_cont_v2.py"]="a8516b046e9ec071f1d1b34c0c4955372e6f2ce839b6c65131c9952474467364"
-  ["test_cont_v3.py"]="4aa2501bc6520c1f0d6e489aa7899bee7096861be034c0f496a5520f5a1d65f0"
+  ["test_cont_v2.py"]="160e9fd59b19e774b521e1ad60f61f9ff30398b5cb07756e769de412db60c53a"
+  ["test_cont_v3.py"]="103cb15a9d21edb92a3ec4e4a1e14e2893ac25a69c8b57c0fdf60914caa39062"
 )
 FAIL=0
 for f in "${!WANT[@]}"; do
