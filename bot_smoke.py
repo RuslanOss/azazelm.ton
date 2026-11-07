@@ -1,5 +1,7 @@
-import importlib.util,sys,inspect
-spec=importlib.util.spec_from_file_location("botx","/opt/azabot/bot.py")
+import importlib.util,sys,inspect,os
+_HERE=os.path.dirname(os.path.abspath(__file__))
+_BOT=os.path.join(_HERE,"bot.py") if os.path.exists(os.path.join(_HERE,"bot.py")) else "/opt/azabot/bot.py"
+spec=importlib.util.spec_from_file_location("botx",_BOT)
 m=importlib.util.module_from_spec(spec); sys.modules["botx"]=m
 spec.loader.exec_module(m)
 print("IMPORT_OK")

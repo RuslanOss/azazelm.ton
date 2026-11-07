@@ -8,11 +8,21 @@ Realnyi put: front shlet POST napryamuyu v API, dostup po podpisi initData.
 Test podnimaet SVOI server na efemernom portu s podmenoy _ton_save_wallet,
 tak chto Airtable ne zapolnyaetsya testovym adresom.
 """
-import base64, hashlib, hmac, json, os, sys, time, threading, urllib.error, urllib.parse, urllib.request
+import base64, hashlib, hmac, json, os, sys, time, tempfile, threading, urllib.error, urllib.parse, urllib.request
 from http.server import ThreadingHTTPServer
 from urllib.parse import urlencode, quote
 
-sys.path.insert(0, "/opt/azabot")
+# Put the bot package dir on sys.path. On the server it lives in /opt/azabot,
+# but the tests must also run from a checkout (CI, local, sandbox) - resolve
+# the dir from this file first and fall back to the server path.
+_HERE = os.path.dirname(os.path.abspath(__file__))
+BOT_DIR = _HERE if os.path.exists(os.path.join(_HERE, "bot.py")) else "/opt/azabot"
+sys.path.insert(0, BOT_DIR)
+
+# Nonce store lives in AZAZEL_DATA_DIR (server: /opt/azabot). Point it to a
+# temp dir so the test never writes into a real deploy dir.
+_TMP_DATA = tempfile.mkdtemp(prefix="azazel_ton_test_")
+os.environ["AZAZEL_DATA_DIR"] = _TMP_DATA
 
 PASS = 0
 FAIL = 0
@@ -31,7 +41,7 @@ def check(name, cond, detail=""):
 
 
 def load_env():
-    p = "/opt/azabot/.env"
+    p = os.path.join(BOT_DIR, ".env")
     if os.path.exists(p):
         for line in open(p, encoding="utf-8"):
             line = line.strip()
@@ -47,7 +57,7 @@ import azazel_initdata as idm
 import azazel_tonproof as tp
 
 # ── 1. Мёртвый код бота удалён (регрессия) ──────────────────────────
-bot_src = open("/opt/azabot/bot.py", encoding="utf-8").read()
+bot_src = open(os.path.join(BOT_DIR, "bot.py"), encoding="utf-8").read()
 for dead in ("cmd_ton_nonce", "cmd_ton_connect", "_tonproof", "_ton_addr_raw"):
     check("bot.py без " + dead, dead not in bot_src)
 check("bot.py сохранил _ton_addr_ok", "_ton_addr_ok" in bot_src)
