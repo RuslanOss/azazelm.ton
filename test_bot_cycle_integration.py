@@ -30,6 +30,17 @@ os.environ["AZAZEL_DATA_DIR"] = D
 os.environ["AZAZEL_CYCLE_ENABLED"] = "0"   # фоновый поток не запускаем в тестах
 
 import azazel_test_guard as _guard  # izolyaciya ot boevoy Airtable/Telegram
+
+# Test declared as offline ("bez seti"), but the first cycle call hit the
+# real Walt API (bot.mywellat.com) and hung on urllib timeout.
+# Block exchange network calls - this test must stay offline.
+import socket as _socket
+_orig_getaddrinfo = _socket.getaddrinfo
+def _no_walt_dns(host, *a, **k):
+    if "mywellat" in str(host):
+        raise OSError("network blocked in test (walt api)")
+    return _orig_getaddrinfo(host, *a, **k)
+_socket.getaddrinfo = _no_walt_dns
 import bot
 _guard.protect_bot(bot)
 
